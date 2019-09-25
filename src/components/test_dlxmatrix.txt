@@ -1,0 +1,61 @@
+
+/**
+ * Project Overview
+ * 1. Scraping the data - done separately in python and stored as json format
+ *      - can be gzipped for efficiency
+ * 2. Loading and serving the data
+ * 3. Front end GUI manipulations
+ * 4. Back end calculations, data structures, algorithms
+ * 5. Unit testing.
+ *
+ *
+ *
+ */
+    /*
+        test_dlx_matrix()
+        {
+            let rownames = [
+                'Q at r0c0',
+                'Q at r1c0',
+                'Q at r2c0',
+                'Q at r3c0',
+                'Q at r0c1',
+                'Q at r1c1',
+                'Q at r2c1',
+                'Q at r3c1',
+                'Q at r0c2',
+                'Q at r1c2',
+                'Q at r2c2',
+                'Q at r3c2',
+                'Q at r0c3',
+                'Q at r1c3',
+                'Q at r2c3',
+                'Q at r3c3'];
+            let data =
+                [
+                    [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0],
+                    [0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0],
+                    [0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0],
+                    [0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0],
+                    [0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0],
+                    [0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0],
+                    [0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
+                    [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0],
+                    [0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0],
+                    [0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
+                    [0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
+                    [1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0],
+                    [0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0],
+                    [0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0],
+                    [0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+                ];
+            let bbc = DLXMatrix.Initialize(data.length, data[0].length, rownames, data, 8);
+            let ans = bbc.Solve();
+            console.log(bbc.toString());
+            console.log(ans);
+    
+            //Expected answer: Array(2)
+    //0: (4) ["Q at r0c1", "Q at r1c3", "Q at r2c0", "Q at r3c2"]
+    //1: (4) ["Q at r0c2", "Q at r1c0", "Q at r2c3", "Q at r3c1"] 
+}*/

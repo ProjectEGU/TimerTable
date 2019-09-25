@@ -1,0 +1,99 @@
+table {
+
+    max-width: 800px;
+    border-collapse: collapse;
+    padding: 0px;
+
+    table-layout: fixed;
+
+    th,
+    td {
+
+        overflow: hidden;
+        text-overflow: clip;
+        white-space: nowrap;
+
+        font-size: 13.25px;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+        vertical-align: top;
+        cursor: default;
+        -moz-user-select: none;
+        -webkit-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
+        // border: 1px solid rgb(21, 21, 22);
+    }
+}
+
+table th {
+    color: rgb(182, 179, 179);
+}
+
+.sched-rowline {
+    border-top: 1px solid rgb(203, 203, 204);
+    height: 31px;
+}
+
+.sched-rownone {
+    height: 31px;
+}
+
+.sched-crscell {
+    border: 2px solid rgb(43, 126, 47);
+    background-color: rgb(179, 212, 181);
+}
+
+.sched-crscell-conflict {
+    border: 2px solid rgb(241, 188, 14);
+    background-color: rgb(248, 248, 248);
+}
+
+/*.sched-crscell-conflict:hover {
+    border: 2px solid rgb(241, 188, 14);
+    background-color: rgb(248, 248, 248);
+}*/
+.sched-crscell-hover {
+    // the proper way to set these border colors would be to set the child border colors ...
+    background-color: rgb(139, 139, 241);
+    //  border: 1px double rgb(250, 236, 44);
+    z-index: 2;
+}
+
+.sched-emptycell {}
+
+.sched-timecol {
+    width: 38px;
+    max-width: 38px;
+    min-width: 38px;
+
+}
+
+.sched-lbd-cell {
+    border-left: 1px solid rgb(203, 203, 204);
+}
+
+.sched-rbd-cell {
+    border-right: 1px solid rgb(203, 203, 204);
+}
+
+.unselectable {
+    -moz-user-select: none;
+    -webkit-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+}
+
+.ant-tabs-nav {
+    float: right;    -moz-user-select: none;
+    -webkit-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+}
+
+.ant-select-dropdown-menu {
+    max-height:500px;
+   
+}
+.ant-select-dropdown {
+    width:auto !important;
+}
