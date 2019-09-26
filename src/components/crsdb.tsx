@@ -118,9 +118,15 @@ export class crsdb {
         return output;
     }
 
+    /**
+     * Get Course by code. If not found or more than one result found, then return null.
+     * @param campus 
+     * @param session 
+     * @param crs_code 
+     */
     static get_crs_by_code(campus, session, crs_code) {
         let result = crsdb.list_crs_by_code(campus, session, crs_code);
-        console.assert(result.length == 1);
+        if(result.length != 1) return null;
         return result[0];
         /*let output = this.get_crs(campus, session, (crs: Course) => {
             return crs.course_code == crs_code;

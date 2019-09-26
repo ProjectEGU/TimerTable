@@ -3,6 +3,7 @@ import { CourseSelection, Timeslot } from "./course";
 import "./../assets/scss/sched_disp.scss";
 import { AssertionError } from "assert";
 interface SchedDispProps {
+    show_term: string,
     crs_selections: CourseSelection[],
     loading?: boolean,//show when crs data is being loaded
     next_selection?: CourseSelection, // shows a course pending to be added (such as during mouseover of a button for selection)
@@ -27,6 +28,7 @@ let wkday_idx = {
 
 interface crs_tslot // represents a single timeslot of a course selection
 {
+
     crs_sel: CourseSelection,
     tslot: Timeslot,
     n_exclusions: number,
@@ -54,6 +56,10 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
     }
     componentDidMount() {
 
+    }
+
+    componentDidUpdate(){
+        console.assert(['F','Y','S'].indexOf(this.props.show_term) != -1);
     }
 
     shouldComponentUpdate(nextProps: SchedDispProps, nextState: SchedDispState) {
@@ -89,6 +95,8 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
         let debugArr = []
 
         this.props.crs_selections.forEach((crs_sel) => {
+            if (crs_sel.crs.term != 'Y' && crs_sel.crs.term != this.props.show_term)
+                return;
             crs_sel.sec.timeslots.forEach((tslot) => {
                 debugArr.push(`${tslot.weekday}: ${crs_sel.crs.course_code} ${SchedDisp.format_timelist(tslot.start_time)} - ${SchedDisp.format_timelist(tslot.end_time)}`);
                 tt_days[tslot.weekday][0].push(
@@ -231,7 +239,7 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
                     let cell_lbd = excl_idx == 0 ? " sched-lbd-cell" : "";
                     let cell_rbd = excl_idx == n_excl_grps ? "sched-rbd-cell" : "";
                     //TODO: add hover effect on blank cells again 
-                    if (place_ct == null || place_ct.placed ) {
+                    if (place_ct == null || place_ct.placed) {
                         thisRow.push(<td key={`${wkday}-${excl_idx}-${curTime}`}
                             className={`sched-emptycell${cell_lbd}${cell_rbd}`}
                             style={{
