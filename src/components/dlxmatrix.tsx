@@ -1,14 +1,14 @@
 
 
 
-export class DLXMatrix {
+export class DLXMatrix<RowType> {
     root: DLXNode;
     all_nodes: Array<DLXNode>;
-    rowInfo: Array<string>;
+    rowInfo: Array<RowType>;
     nRows: number;
     nCols: number;
 
-    private constructor(root: DLXNode, all_nodes: Array<DLXNode>, rowInfo: Array<string>, nRows: number, nCols: number) {
+    private constructor(root: DLXNode, all_nodes: Array<DLXNode>, rowInfo: Array<RowType>, nRows: number, nCols: number) {
         this.root = root;
         this.all_nodes = all_nodes.slice();
         this.rowInfo = rowInfo.slice();
@@ -89,49 +89,6 @@ export class DLXMatrix {
         DLXMatrix.UncoverColumn(c);
     }
 
-    public toString(): string {
-        // arrays are sparse in javascript.
-        // out of bounds assignment will expand array up to the assigned index.
-        // the assigned index will contain the assigned value. 
-        // all other slots will be filled with 'undefined'.
-        let map: boolean[][] = DLXMatrix.New2dArray(this.nRows, this.nCols);
-
-        let sb: string = "";
-        let padSize: number = Math.max(...this.rowInfo.map(x => x.length));
-
-        /*
-        let c = this.root.right;
-        while (c !== this.root) {
-            let r = c.down;
-            while (r !== c) {
-                map[r.rowId][r.colId] = true;
-                r = r.down;
-            }
-            c = c.right;
-        }*/
-
-        this.all_nodes.forEach((node) => {
-            if(node.rowId >= 0 && node.colId >= 0 && node.IsActive)
-                map[node.rowId][node.colId] = true;
-        });
-
-        let rowIdx = 0;
-        this.rowInfo.forEach((rowName) => {
-            sb += rowName.padEnd(padSize) + ": ";
-
-            for (let colIdx = 0; colIdx < this.nCols; colIdx++) {
-                sb += (map[rowIdx][colIdx] ? '1' : '0') + " ";
-            }
-
-            sb += '\n';
-            rowIdx++;
-        });
-
-        console.assert(rowIdx == this.nRows);
-
-        return sb;
-    }
-
     /**
      * Initialize a matrix based on the provided params.
      * 
@@ -143,7 +100,7 @@ export class DLXMatrix {
      * @param m Matrix containing the data (auto converted to boolean using js if statement).
      * @param nPrimaryCols If the matrix has secondary columns, then nPrimaryCols is the number of the primary columns. By default, this is equal to nCols.
      */
-    public static Initialize(nRows: number, nCols: number, rowInfo: any[], data: number[][], nPrimaryCols?: number): DLXMatrix {
+    public static Initialize<RowType>(nRows: number, nCols: number, rowInfo: any[], data: number[][], nPrimaryCols?: number): DLXMatrix<RowType> {
         // Array<T> is used in favor of T[] when the length of the array in question is expected to be changed.
         let nodeList: Array<DLXNode> = [];
 
@@ -245,7 +202,7 @@ export class DLXMatrix {
             nodeList.push(...rowNodes);
         }
 
-        return new DLXMatrix(root, nodeList, rowInfo, nRows, nCols);
+        return new DLXMatrix<RowType>(root, nodeList, rowInfo, nRows, nCols);
     }
 
     private static CoverColumn(c: DLXNode): void {

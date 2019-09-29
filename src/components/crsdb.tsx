@@ -1,4 +1,4 @@
-import { Course, CourseSelection, CourseSection } from "./course"
+import { Course, CourseSelection, CourseSection, Timeslot } from "./course"
 
 import { DLXMatrix } from "./dlxmatrix"
 import { AssertionError } from "assert";
@@ -40,9 +40,12 @@ export class crsdb {
             crsdb.crs_store[campus][session] = data;
             let crs_map = (crsdb.crs_store_prefix[campus][session] = {});
             // process each course into first 3 letter ids
+            // add the campus and session info to each course object
             data.forEach((crs) => {
                 console.assert(crs.course_code.length > 3);
-
+                crs.campus = campus;
+                crs.session = session;
+                crs.unique_id = `${campus}-${session}-${crs.course_code}`;
                 let map_pos = crs_map;
                 for (let idx = 0; idx < 3; idx++) {
                     let letter = crs.course_code[idx].toUpperCase();
@@ -81,7 +84,7 @@ export class crsdb {
     /**
      * Get a course selection given a course object and a list of section id's to take.
      * If any section specified is invalid, or not all sections are filled exactly once, then an error will be thrown.
-     * todo: allow partial selection s ?
+     * todo: allow partial selections ?
      * @param crs 
      * @param section_ids 
      */
@@ -126,7 +129,7 @@ export class crsdb {
      */
     static get_crs_by_code(campus, session, crs_code) {
         let result = crsdb.list_crs_by_code(campus, session, crs_code);
-        if(result.length != 1) return null;
+        if (result.length != 1) return null;
         return result[0];
         /*let output = this.get_crs(campus, session, (crs: Course) => {
             return crs.course_code == crs_code;
@@ -148,7 +151,34 @@ export class crsdb {
         return crsdb.crs_store[campus][session].find(pred);
     }
 
-    
+    /**
+     * Check if two selected timeslots conflict with each other
+     */
+    static is_timeslot_conflict(a: Timeslot, b: Timeslot): boolean {
+        if (a.weekday != b.weekday)
+            return false;
+        if (a.start_time <= b.start_time && a.end_time <= b.start_time)
+            return false; // comparing list of ints in JS will compare elements with little endian priority
+        if (a.start_time >= b.end_time && a.end_time >= b.end_time)
+            return false;
+
+        return true;
+    }
+
+    /**
+     * Check if two selected lists of timeslots conflict with each other
+     */
+    static is_timeslots_conflict(a: Timeslot[], b: Timeslot[]): boolean {
+        //TODO: is there a more optimal way to check two series of timeslots for conflict ?
+        for (let idx1 = 0; idx1 < a.length; idx1++) {
+            for (let idx2 = 0; idx2 < b.length; idx2++) {
+                if (crsdb.is_timeslot_conflict(a[idx1], b[idx2])) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
 
     static get_crs_all(campus, session, pred: (Course) => boolean): Course[] {
         return null; // TODO.

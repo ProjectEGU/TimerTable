@@ -2,6 +2,8 @@ import * as React from "react";
 import { CourseSelection, Timeslot } from "./course";
 import "./../assets/scss/sched_disp.scss";
 import { AssertionError } from "assert";
+import { crsdb } from "./crsdb";
+
 interface SchedDispProps {
     show_term: string,
     crs_selections: CourseSelection[],
@@ -11,7 +13,8 @@ interface SchedDispProps {
     endTime?: number[], // the end of the displayed time. if null, then use the latest course end. specify as [hour, mins] in 24h format
     stepMins?: number,
     stepsPerLine?: number,
-    labelsPerLine?: number
+    labelsPerLine?: number,
+    show_double: boolean
 }
 
 interface SchedDispState {
@@ -28,7 +31,6 @@ let wkday_idx = {
 
 interface crs_tslot // represents a single timeslot of a course selection
 {
-
     crs_sel: CourseSelection,
     tslot: Timeslot,
     n_exclusions: number,
@@ -58,15 +60,14 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
 
     }
 
-    componentDidUpdate(){
-        console.assert(['F','Y','S'].indexOf(this.props.show_term) != -1);
+    componentDidUpdate() {
+        console.assert(['F', 'Y', 'S'].indexOf(this.props.show_term) != -1);
     }
 
     shouldComponentUpdate(nextProps: SchedDispProps, nextState: SchedDispState) {
         // TODO: check if prev crs_list is the same as new crs_list. Can involve overriding equals in respective methods.
         return true;
     }
-
 
     calc_tt_nodes() {
 
@@ -89,7 +90,6 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
          * Each element of tt_days is of indexing: item[weekday][exclusion_group][item_idx]
          */
         let tt_days = { "MO": [[]], "TU": [[]], "WE": [[]], "TH": [[]], "FR": [[]] };
-
 
         // Organize crs_list into days
         let debugArr = []
@@ -139,7 +139,7 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
                 for (let idxA = 0; idxA < cur_excl_grp.length; idxA++) {
                     for (let idxB = cur_excl_grp.length - 1; idxB > idxA; idxB--) {
                         // check if current selection conflicts. if so, then move it to a new excl group.
-                        if (SchedDisp.crs_tslot_conflict(cur_excl_grp[idxA], cur_excl_grp[idxB])) {
+                        if (crsdb.is_timeslot_conflict(cur_excl_grp[idxA].tslot, cur_excl_grp[idxB].tslot)) {
                             cur_excl_grp[idxA].n_exclusions += 1;
                             cur_excl_grp[idxB].n_exclusions += 1;
                             // ^ above does not work as intended. n_exclusions may report more conflicts than actual.
@@ -151,7 +151,6 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
                         }
                     }
                 }
-
 
                 // if there are remaining conflict courses, allocate new exclusion group
                 if (crs_remain.length > 0) {
@@ -189,11 +188,12 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
         while (curTime < endTime) {
             let thisRow = []
 
-            thisRow.push(<td className="sched-timecol" style={{ width: timeColWidth, maxWidth: timeColWidth }} key={`d-${curTime}`}>
-                {
-                    stepCount % this.props.stepsPerLine == 0 ? SchedDisp.format_mins(curTime) : '\u00A0'
-                }
-            </td>);
+            thisRow.push(
+                <td className="sched-timecol" style={{ width: timeColWidth, maxWidth: timeColWidth }} key={`d-${curTime}`}>
+                    {
+                        stepCount % this.props.stepsPerLine == 0 ? SchedDisp.format_mins(curTime) : '\u00A0'
+                    }
+                </td>);
 
             Object.keys(wkday_idx).forEach((wkday, wkidx) => {
                 let this_excl_grps: crs_tslot[][] = tt_days[wkday];
@@ -328,19 +328,7 @@ ${place_ct.tslot.room_name_1}` : null
         );
     }
 
-    /**
-     * Check if two selected tslots conflict with each other
-     */
-    static crs_tslot_conflict(a: crs_tslot, b: crs_tslot): boolean {
-        if (a.tslot.weekday != b.tslot.weekday)
-            return false;
-        if (a.tslot.start_time <= b.tslot.start_time && a.tslot.end_time <= b.tslot.start_time)
-            return false; // comparing list of ints in JS will compare elements with little endian priority
-        if (a.tslot.start_time >= b.tslot.end_time && a.tslot.end_time >= b.tslot.end_time)
-            return false;
 
-        return true;
-    }
 
     /**
      * Format a list of hour, minutes in 24h format.

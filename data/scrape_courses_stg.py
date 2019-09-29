@@ -35,6 +35,7 @@ def load_from_stg_json(filepath):
             max_enrolled = sect_n['enrollmentCapacity']
             waitlisted_count = sect_n['actualWaitlist']
             timeslots_list = []
+
             for timeslot_id in sect_n['schedule']:
                 timeslot_n = sect_n['schedule'][timeslot_id]
                 weekday = timeslot_n['meetingDay']
@@ -51,6 +52,9 @@ def load_from_stg_json(filepath):
                     timeslots_list.append(Timeslot(weekday, start_time, end_time, room1, room2))
                 else:
                     raise Exception("Invalid term " + term)
+                
+            if(len(timeslots_list) == 0):
+                print("WARN - NO TIMESLOTS FOR COURSE SECTION: ", course_code, section_name)
 
             c_section = SingleSection(section_name.replace('-',''), instructors_list, "", curr_enrolled,
                                       max_enrolled, waitlisted_count, timeslots_list)

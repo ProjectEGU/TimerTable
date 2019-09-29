@@ -62,6 +62,9 @@ def parse_data(data):
             assert (len(weekdays_list) == len(start_time_list))
             assert (len(start_time_list) == len(end_time_list))
 
+            if(len(start_time_list) == 0):
+                print("WARN - NO TIMESLOTS FOR COURSE SECTION: ", course_code, section_name)
+
             if term in ('F', 'S'):
                 room_list = [text.strip() for text in room_node.itertext() if len(text.strip()) > 0]
                 c_section_timeslots = [Timeslot(wk, strt, end, rm, rm) for wk, strt, end, rm in \
@@ -123,8 +126,8 @@ for yr_of_study in [str(x) for x in range(1,5)]:
         rawdata = f.read()
 
     ## save raw data
-    # with open("utm_" + yr_of_study, 'wb') as f:
-    #     f.write(rawdata)
+    #with open("utm_" + yr_of_study, 'wb') as f:
+    #    f.write(rawdata)
     all_list.extend(parse_data(rawdata))
 
 all_list.sort(key=lambda c:c.course_code)

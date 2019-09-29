@@ -50,5 +50,9 @@ export interface Course {
     course_sections: CourseSectionsDict;
     enrl_controls: string;
     term: string;
+
+    session:string;
+    campus:string;
+    unique_id:string; // an identifier for the course object. it will take into account the same course at different campus / session, etc.
 }
 
