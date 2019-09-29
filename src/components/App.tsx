@@ -7,15 +7,22 @@ import 'antd/dist/antd.css';
 import { DLXMatrix } from "./dlxmatrix"
 import { crsdb, Campus } from "./crsdb"
 import { Course, CourseSection, CourseSectionsDict, Timeslot, CourseSelection } from "./course"
-import { Schedule } from "./schedule"
 import { SchedDisp } from "./sched_disp";
 import { AutoComplete, Button, Card, Tabs, Icon, Input, Badge, Collapse, Pagination } from 'antd';
 import { AutoCompleteProps } from "antd/lib/auto-complete";
 import { AssertionError } from "assert";
+import { crs_arrange } from "./schedule";
 
 interface AppProps {
 
 }
+
+interface CrsState {
+    crs_code_list: string[];
+    crs_obj_list: Course[];
+    crs_sections: CourseSelection[];
+}
+
 interface AppState {
     data_loaded: boolean;
     data: Course[];
@@ -24,9 +31,12 @@ interface AppState {
     cur_campus: string;
     cur_session: string;
 
-    crs_code_list: string[];
-    crs_obj_list: Course[];
-    crs_sections: CourseSelection[];
+
+    crs_state: CrsState;
+
+    search_crs_list: Course[];
+    search_result: CourseSelection[][];
+    search_result_idx: number;
 }
 
 class App extends React.Component<AppProps, AppState> {
@@ -46,9 +56,16 @@ class App extends React.Component<AppProps, AppState> {
             cur_campus: "stg_artsci",
             cur_session: "20199",
 
-            crs_code_list: [],
-            crs_obj_list: [],
-            crs_sections: []
+            crs_state: {
+                crs_code_list: [],
+                crs_obj_list: [],
+                crs_sections: []
+            },
+
+            search_crs_list: [],
+
+            search_result: [],
+            search_result_idx: 0
         }
     }
 
@@ -65,32 +82,73 @@ class App extends React.Component<AppProps, AppState> {
         });
     }
 
-    crs_addAllSections(crs_code: string) {
+    crs_getByCode(crs_code: string): Course {
         crs_code = crs_code.toUpperCase();
-        console.log(crs_code in this.state.crs_code_list);
-        if(this.state.crs_code_list.indexOf(crs_code) != -1){
-            return;
-        }
         let crsObj = crsdb.get_crs_by_code(this.state.cur_campus, this.state.cur_session, crs_code);
         console.assert(crsObj != null);
+
+        return crsObj;
+    }
+    crs_listAllSections(crs: Course): CourseSelection[] {
+        let output: CourseSelection[] = [];
+        Object.keys(crs.course_sections).forEach(sec_type => {
+            output.push(...crs.course_sections[sec_type].map<CourseSelection>((sec) => ({ crs: crs, sec: sec })));
+            console.log(sec_type);
+        });
+
+        return output;
+    }
+
+    crs_addSearchCrs(crs_code: string) {
+        let crsObj = this.crs_getByCode(crs_code);
+        if (this.state.search_crs_list.indexOf(crsObj) != -1)
+            return;
         this.setState({
-            crs_obj_list: this.state.crs_obj_list.concat(crsObj),
-            crs_sections: this.state.crs_sections.concat(...crsObj.course_sections.LEC.map<CourseSelection>((sec) => ({crs: crsObj, sec: sec}))),
-            crs_code_list: this.state.crs_code_list.concat(crs_code)
+            search_result: [],
+            search_crs_list: this.state.search_crs_list.concat(crsObj)
+        });
+    }
+
+    crs_removeSearchCrs(crs_code: string) {
+        let crsObj = this.crs_getByCode(crs_code);
+        console.assert(this.state.search_crs_list.indexOf(crsObj) != -1);
+        this.setState({
+            search_result: [],
+            search_crs_list: this.state.search_crs_list.filter(crs => crs != crsObj)
+        });
+    }
+
+    crs_doSearch() {
+        this.setState({
+            search_result: crs_arrange.find_sched(this.state.search_crs_list),
+            search_result_idx: 0
+        });
+    }
+
+    crs_addAllSections(crs_code: string) {
+        if (this.state.crs_state.crs_code_list.indexOf(crs_code) != -1) {
+            return;
+        }
+        let crsObj = this.crs_getByCode(crs_code);
+        this.setState({
+            crs_state:
+            {
+                crs_obj_list: this.state.crs_state.crs_obj_list.concat(crsObj),
+                crs_sections: this.state.crs_state.crs_sections.concat(...this.crs_listAllSections(crsObj)),
+                crs_code_list: this.state.crs_state.crs_code_list.concat(crs_code)
+            }
         });
     }
 
     crs_removeAllSections(crs_code: string) {
-        crs_code = crs_code.toUpperCase();
-        let crsObj = crsdb.get_crs_by_code(this.state.cur_campus, this.state.cur_session, crs_code);
-        console.assert(this.state.crs_code_list.indexOf(crs_code) > -1);
-        console.assert(crsObj != null);
-
-
+        console.assert(this.state.crs_state.crs_code_list.indexOf(crs_code) != -1);
         this.setState({
-            crs_obj_list: this.state.crs_obj_list.splice(this.state.crs_obj_list.findIndex(crs => crs.course_code == crs_code)),
-            crs_sections: this.state.crs_sections.filter(crs_sel => crs_sel.crs.course_code != crs_code),
-            crs_code_list: this.state.crs_code_list.splice(this.state.crs_code_list.indexOf(crs_code))
+            crs_state:
+            {
+                crs_obj_list: this.state.crs_state.crs_obj_list.filter(crs => crs.course_code != crs_code),
+                crs_sections: this.state.crs_state.crs_sections.filter(crs_sel => crs_sel.crs.course_code != crs_code),
+                crs_code_list: this.state.crs_state.crs_code_list.filter(crs_c => crs_c != crs_code)
+            }
         });
     }
 
@@ -133,44 +191,62 @@ class App extends React.Component<AppProps, AppState> {
                             <div onClick={(evt: React.MouseEvent<HTMLDivElement, MouseEvent>) => {
                                 evt.preventDefault(); evt.stopPropagation();
                                 // this.dropdownRef.current.blur();
-                                this.crs_addAllSections(crs_code);
+
+                                // this.crs_addAllSections(crs_code);
+                                this.crs_addSearchCrs(crs_code);
                             }}
                                 style={{ padding: "5px 12px 5px 12px", width: "100%" }}
-                            > {crs_code}: {crs_title} </div>
+                            > {crs_code}: {crs_title} [{Object.keys(crs.course_sections).join(',')}]</div>
                         </AutoComplete.Option>
 
                     );
                 })
             : [];
 
-        let crs_disp_items = this.state.crs_obj_list.map(crs => {
+        let crs_disp_items = this.state.crs_state.crs_obj_list.map(crs => {
             return (
                 <div key={crs.course_code}>
-                    <span style={{ float: "left" }}>{crs.course_code}</span><span><Icon type="close" onClick={() => { this.crs_removeAllSections(crs.course_code); }} /></span>
+                    <span style={{ float: "left" }}>{crs.course_code}</span>
+                    <span style={{ float: "right" }}>&nbsp;<Icon type="close" onClick={() => {
+                        this.crs_removeAllSections(crs.course_code);
+                    }} /></span>
+                    <br />
                 </div>
             );
         });
 
+        let crs_search_items = this.state.search_crs_list.map(crs => {
+            return (
+                <div key={crs.course_code}>
+                    <span style={{ float: "left" }}>{crs.course_code}</span>
+                    <span style={{ float: "right" }}>&nbsp;<Icon type="close" onClick={() => {
+                        this.crs_removeSearchCrs(crs.course_code);
+                    }} /></span>
+                    <br />
+                </div>
+            );
+        });
+        const showSearchResults = this.state.search_result.length > 0;
+        let sectionsList = showSearchResults ? this.state.search_result[this.state.search_result_idx] : this.state.crs_state.crs_sections;
         let crs_dropdown_open = this.state.crs_search_dropdown_open && dataSource.length > 0;
         return (
             <div className="app">
                 <div style={{ float: "left", width: "800px" }}>
                     <Tabs defaultActiveKey="1" tabPosition="top" >
                         <Tabs.TabPane tab="Fall" key="1">
-                            <SchedDisp crs_selections={this.state.crs_sections} show_term={"F"} />
+                            <SchedDisp crs_selections={sectionsList} show_term={"F"} />
                         </Tabs.TabPane>
                         <Tabs.TabPane tab="Winter" key="2">
-                            <SchedDisp crs_selections={this.state.crs_sections} show_term={"S"} />
+                            <SchedDisp crs_selections={sectionsList} show_term={"S"} />
                         </Tabs.TabPane>
                         <Tabs.TabPane tab="Both" key="3">
-                            <div style={{ float: "left", width: "50%" }}><SchedDisp crs_selections={this.state.crs_sections} show_term={"F"} /></div>
-                            <div style={{ float: "right", width: "50%" }}><SchedDisp crs_selections={this.state.crs_sections} show_term={"S"} /></div>
+                            <div style={{ float: "left", width: "50%" }}><SchedDisp crs_selections={sectionsList} show_term={"F"} /></div>
+                            <div style={{ float: "right", width: "50%" }}><SchedDisp crs_selections={sectionsList} show_term={"S"} /></div>
                         </Tabs.TabPane>
                     </Tabs>
 
                 </div>
                 <div className="ctrls" style={{ float: "left", width: "400px" }}>
-
                     <Collapse
                         defaultActiveKey={['1', '3']}
                     >
@@ -179,7 +255,12 @@ class App extends React.Component<AppProps, AppState> {
                             style={{ userSelect: "none", backgroundColor: '#fff', color: '#999', boxShadow: '0 0 0 1px #d9d9d9 inset' }}
                         />}>
                             <Card size="small" style={{ width: "auto" }}>
+                                <p>Select courses:</p>
                                 {crs_disp_items}
+                            </Card>
+                            <Card size="small" style={{ width: "auto" }}>
+                                <p>Search Courses:</p>
+                                {crs_search_items}
                             </Card>
                             <label>Add a course:</label>
                             <AutoComplete
@@ -197,9 +278,9 @@ class App extends React.Component<AppProps, AppState> {
                                     });
                                 }}
                                 onBlur={() => {
-                                    /*this.setState({
+                                    this.setState({
                                         crs_search_dropdown_open: false,
-                                    });*/
+                                    });
                                 }}
 
                                 onSelect={(a, b) => false}
@@ -231,15 +312,33 @@ class App extends React.Component<AppProps, AppState> {
                         />}>
                             <div></div>
                         </Collapse.Panel>
-                        <Collapse.Panel header="Search" key="3" showArrow={false} extra={[<Badge
+                        <Collapse.Panel header="Search" key="3" showArrow={false} extra={<Badge
                             count={4}
                             style={{ userSelect: "none", backgroundColor: '#fff', color: '#999', boxShadow: '0 0 0 1px #d9d9d9 inset' }}
-                        />, <Badge
-                            count={4}
-                            style={{ userSelect: "none", backgroundColor: '#fff', color: '#999', boxShadow: '0 0 0 1px #d9d9d9 inset' }}
-                        />]}>
-                            <div><span>View Result:<br /><br /></span>
-                                <Pagination disabled={true} simple defaultCurrent={2} total={50} />
+                        />}>
+
+                            <div>
+                                <span>View Result:</span>
+                                <span><Pagination
+                                    current={this.state.search_result.length == 0 ? 0 : this.state.search_result_idx + 1}
+                                    disabled={this.state.search_result.length == 0}
+                                    simple
+                                    defaultCurrent={0} 
+                                    total={this.state.search_result.length}
+                                    pageSize={1}
+
+                                    style={{ width: "66%" }}
+                                    onChange={(idx) => {
+                                        idx -= 1;
+                                        if (idx >= this.state.search_result.length || idx < 0) return;
+                                        else this.setState({ search_result_idx: idx });
+                                    }}
+                                />
+                                    <Button icon="search" onClick={this.crs_doSearch.bind(this)}>
+                                        Search
+                            </Button>
+                                </span>
+                                <span style={{ float: "right" }}></span>
                             </div>
                         </Collapse.Panel>
                     </Collapse>

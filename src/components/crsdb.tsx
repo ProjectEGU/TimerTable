@@ -148,6 +148,8 @@ export class crsdb {
         return crsdb.crs_store[campus][session].find(pred);
     }
 
+    
+
     static get_crs_all(campus, session, pred: (Course) => boolean): Course[] {
         return null; // TODO.
     }
