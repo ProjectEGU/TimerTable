@@ -4,3 +4,14 @@ node_modules/
 src/**/*.jsx
 tests/__coverage__/
 tests/**/*.jsx
+course_data_utm_20199
+vsc.code-workspace
+data/course_data_stg_artsci_20199
+data/utm_2
+data/utm_3
+data/__pycache__/course.cpython-37.pyc
+.gitignore
+data/utm_1
+data/utm_4
+data/__pycache__/schedule.cpython-37.pyc
+
