@@ -152,16 +152,30 @@ export class crsdb {
     }
 
     /**
-     * Check if two selected timeslots conflict with each other
+     * Check if two selected timeslots conflict with each other.
+     * 
      */
     static is_timeslot_conflict(a: Timeslot, b: Timeslot): boolean {
+        // The two timeslots occur on different weekdays and therefore cannot conflict
         if (a.weekday != b.weekday)
             return false;
-        if (a.start_time <= b.start_time && a.end_time <= b.start_time)
-            return false; // comparing list of ints in JS will compare elements with little endian priority
-        if (a.start_time >= b.end_time && a.end_time >= b.end_time)
+
+        // Each timeslot has the start and end times in [hour, minute] format.
+        // Convert them into total minutes format.
+        let start_A = a.start_time[1] * 60 + a.start_time[0];
+        let start_B = b.start_time[1] * 60 + b.start_time[0];
+        let end_A = a.end_time[1] * 60 + a.end_time[0];
+        let end_B = b.end_time[1] * 60 + b.end_time[0];
+
+        // The first timeslot starts and ends before the second timeslot even starts, so there is no conflict.
+        if (start_A <= start_B && end_A <= start_B)
             return false;
 
+        // The first timeslot starts and ends after the second timeslot has ended, so there is no conflict.
+        if (start_A >= end_B && end_A >= end_B)
+            return false;
+
+        // All other cases ruled out: there is a conflict.
         return true;
     }
 
@@ -179,8 +193,14 @@ export class crsdb {
         }
         return false;
     }
+    // CHECK CONFLICT : CSC108 PRA0101 conflict with CSC108LEC0102
+    // CHECK SANITY: CSC108F x CSC108S should yield expected # of results (cross-multiply single results should be result of both results)
+    // CHECK DUPE RESULT: CSC108F result 1 == result 916
+    static is_section_open(sec: CourseSection) {
+        return !sec.notes.includes("Closed") && !sec.notes.includes("Cancelled") && sec.timeslots.length > 0;
+    }
 
     static get_crs_all(campus, session, pred: (Course) => boolean): Course[] {
-        return null; // TODO.
+        return null; // TODO: get all crs that fulfill criteria
     }
 }

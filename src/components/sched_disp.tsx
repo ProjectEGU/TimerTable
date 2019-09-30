@@ -14,7 +14,7 @@ interface SchedDispProps {
     stepMins?: number,
     stepsPerLine?: number,
     labelsPerLine?: number,
-    show_double: boolean
+    show_double?: boolean
 }
 
 interface SchedDispState {
@@ -37,7 +37,9 @@ interface crs_tslot // represents a single timeslot of a course selection
     placed?: boolean,
     selected: boolean
 }
-
+/**
+ * TODO: Display different colors for course sections with waitlist or already filled.
+ */
 export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
 
     static defaultProps = {
@@ -45,7 +47,8 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
         endTime: [20, 30],
         stepMins: 30, // the number of minutes increase per cell
         stepsPerLine: 2,// how many steps before drawing a line
-        labelsPerLine: 2 // how many steps before showing a label
+        labelsPerLine: 2, // how many steps before showing a label
+        show_double: false // by default, only show a single semester
     }
     constructor(props) {
         // Required step: always call the parent class' constructor
@@ -69,7 +72,7 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
         return true;
     }
 
-    calc_tt_nodes() {
+    calc_tt_nodes(baseColWidth, timeColWidth, rowHeight, targetTerm) {
 
         // Algoritm Overview:
         /** For courses with conflict:
@@ -95,7 +98,7 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
         let debugArr = []
 
         this.props.crs_selections.forEach((crs_sel) => {
-            if (crs_sel.crs.term != 'Y' && crs_sel.crs.term != this.props.show_term)
+            if (crs_sel.crs.term != 'Y' && crs_sel.crs.term != targetTerm)
                 return;
             crs_sel.sec.timeslots.forEach((tslot) => {
                 debugArr.push(`${tslot.weekday}: ${crs_sel.crs.course_code} ${SchedDisp.format_timelist(tslot.start_time)} - ${SchedDisp.format_timelist(tslot.end_time)}`);
@@ -166,8 +169,6 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
                 }
             } while (crs_remain.length > 0);
         });
-        const baseColWidth = 150;
-        const timeColWidth = 38;
         let colWidths = remainingRowspan.map(x => baseColWidth / x.length);
         let innerHead = [" ", "Mon", "Tue", "Wed", "Thu", "Fri"].map((x, i) =>
             <th
@@ -264,10 +265,10 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
                                 className={(place_ct.n_exclusions == 0 ? `sched-crscell` : `sched-crscell-conflict`) + (place_ct.selected ? ` sched-crscell-hover` : ``)}
                                 onMouseOver={(evt) => this.setState({ current_selection: place_ct.crs_sel })}
                                 onMouseLeave={(evt) => this.setState({ current_selection: null })}
-                                title={place_ct.n_exclusions > 0 ?
+                                title={
                                     `${place_ct.crs_sel.crs.course_code.substr(0, 6)} ${place_ct.crs_sel.sec.section_id}
 ${SchedDisp.format_timelist(place_ct.tslot.start_time)}-${SchedDisp.format_timelist(place_ct.tslot.end_time)}
-${place_ct.tslot.room_name_1}` : null
+${place_ct.tslot.room_name_1}`
                                 }
                                 style={{
                                     width: colWidths[wkidx],
@@ -305,7 +306,7 @@ ${place_ct.tslot.room_name_1}` : null
                 // no line
                 rowClass = "sched-rownone";
             }
-            innerRows.push(<tr className={rowClass} key={`r-${curTime}`}>{thisRow}</tr>)
+            innerRows.push(<tr className={rowClass} style={{ height: rowHeight }} key={`r-${curTime}`}>{thisRow}</tr>)
             curTime += this.props.stepMins;
 
             stepCount++;
@@ -327,6 +328,11 @@ ${place_ct.tslot.room_name_1}` : null
             </table>
         );
     }
+    format_term(targetTerm: string): string {
+        if (targetTerm == 'F') return "Fall";
+        else if (targetTerm == 'S') return "Winter";
+        else throw "Invalid Term: " + targetTerm;
+    }
 
 
 
@@ -345,9 +351,21 @@ ${place_ct.tslot.room_name_1}` : null
     }
 
     render() {
-        // DONE: Render the courses into timetable.
-        let tt = this.calc_tt_nodes();
-        return tt;
+        const baseColWidth = 150;
+        const timeColWidth = 38;
+        const rowHeight = 31;
+
+        // calc_tt_nodes(baseColWidth, timeColWidth, rowHeight, showTerm)
+        if (this.props.show_double) {
+            return (
+                <div>
+                    <div style={{ float: "left", width: "50%" }}>{this.calc_tt_nodes(baseColWidth / 2, timeColWidth, rowHeight, 'F')}</div>
+                    <div style={{ float: "right", width: "50%" }}>{this.calc_tt_nodes(baseColWidth / 2, timeColWidth, rowHeight, 'S')}</div>
+                </div>
+            );
+        } else {
+            return this.calc_tt_nodes(baseColWidth, timeColWidth, rowHeight, this.props.show_term);
+        }
     }
 }
 

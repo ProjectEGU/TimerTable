@@ -56,14 +56,21 @@ def parse_data(data):
             end_time_list = [x.strip() for x in sect_n.xpath("td[10]")[0].itertext() if len(x.strip()) > 0]
             room_node = sect_n.xpath("td[11]")[0]
 
-            notes_n = sect_n.xpath("td[12]/span/span")
-            notes = "" if len(notes_n) == 0 else notes_n[0].text.strip()
+            notes_n = sect_n.xpath("td[12]")
+            notes = ''.join([x.strip() for x in notes_n[0].itertext() if len(x.strip()) > 0])
+
+            is_cancelled = "Cancelled" in notes or "Closed" in notes
 
             assert (len(weekdays_list) == len(start_time_list))
             assert (len(start_time_list) == len(end_time_list))
 
             if(len(start_time_list) == 0):
-                print("WARN - NO TIMESLOTS FOR COURSE SECTION: ", course_code, section_name)
+                if(is_cancelled):
+                    print("INFO - SECTION IS CANCELLED: ", course_code, section_name)
+                else:
+                    print("INFO - NO TIMESLOTS FOR COURSE SECTION: ", course_code, section_name, len(notes))
+            if(is_cancelled):
+                print("INFO - SECTION IS CANCELLED BUT HAS TIMESLOTS: ", course_code, section_name)
 
             if term in ('F', 'S'):
                 room_list = [text.strip() for text in room_node.itertext() if len(text.strip()) > 0]

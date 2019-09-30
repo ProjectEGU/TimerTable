@@ -62,7 +62,7 @@ class App extends React.Component<AppProps, AppState> {
             data: [],
             crs_search_str: "",
             crs_search_dropdown_open: false,
-            cur_campus: "utm",
+            cur_campus: Campus.UTM,
             cur_session: "20199",
 
             crs_state: {
@@ -101,7 +101,6 @@ class App extends React.Component<AppProps, AppState> {
         let output: CourseSelection[] = [];
         Object.keys(crs.course_sections).forEach(sec_type => {
             output.push(...crs.course_sections[sec_type].map<CourseSelection>((sec) => ({ crs: crs, sec: sec })));
-            console.log(sec_type);
         });
 
         return output;
@@ -291,7 +290,6 @@ class App extends React.Component<AppProps, AppState> {
                                             size="large"
                                             type={crs_dropdown_open ? "primary" : "default"}
                                             onClick={() => {
-                                                console.log("btn click");
                                                 this.setState({ crs_search_dropdown_open: this.state.crs_search_str.length >= 3 && !crs_dropdown_open });
                                             }}
                                         >

@@ -52,9 +52,9 @@ def load_from_stg_json(filepath):
                     timeslots_list.append(Timeslot(weekday, start_time, end_time, room1, room2))
                 else:
                     raise Exception("Invalid term " + term)
-                
+
             if(len(timeslots_list) == 0):
-                print("WARN - NO TIMESLOTS FOR COURSE SECTION: ", course_code, section_name)
+                print("INFO - NO TIMESLOTS FOR COURSE SECTION: ", course_code, section_name)
 
             c_section = SingleSection(section_name.replace('-',''), instructors_list, "", curr_enrolled,
                                       max_enrolled, waitlisted_count, timeslots_list)
