@@ -8,6 +8,7 @@ export class DLXMatrix<RowType> {
     nRows: number;
     nCols: number;
 
+
     private constructor(root: DLXNode, all_nodes: Array<DLXNode>, rowInfo: Array<RowType>, nRows: number, nCols: number) {
         this.root = root;
         this.all_nodes = all_nodes.slice();
@@ -20,6 +21,16 @@ export class DLXMatrix<RowType> {
         return this.rowInfo; // TODO - make this readonly somehow
     }
 
+    /*
+    * Sets a limit to the maximum number of solutions returned by Solve(). 
+    * Any nonpositive number will indicate no limit.
+    */
+    public SetSolutionLimit(solution_limit: number) {
+        this.solutionLimit = solution_limit;
+    }
+
+    solutionLimit: number = -1;
+    solutionLimitReached: boolean = false;
     solutionSet: Array<Array<any>> = new Array<Array<any>>();
     curSol: Array<any> = new Array<any>();
 
@@ -32,6 +43,7 @@ export class DLXMatrix<RowType> {
     public Solve(): Array<Array<any>> {
         this.solutionSet = [];
         this.curSol = [];
+        this.solutionLimitReached = false;
 
         this.SolveR(0);
 
@@ -39,6 +51,12 @@ export class DLXMatrix<RowType> {
     }
 
     private SolveR(depth: number): void {
+        // check if the current limit of solutions has been reached
+        if (this.solutionLimit > 0 && this.solutionSet.length >= this.solutionLimit) {
+            this.solutionLimitReached = true;
+            return;
+        }
+
         // check if there is a column (constraint) to satisfy.
         if (this.root.right === this.root) {
             // slice deepcopies array

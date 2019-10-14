@@ -3,6 +3,8 @@ import { CourseSelection, Timeslot } from "./course";
 import "./../assets/scss/sched_disp.scss";
 import { AssertionError } from "assert";
 import { crsdb } from "./crsdb";
+import { Icon, Button, Popover, Select } from 'antd';
+import { AlternateSectionButton } from "./alt_sect_btn";
 
 interface SchedDispProps {
     show_term: string,
@@ -169,15 +171,30 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
                 }
             } while (crs_remain.length > 0);
         });
-        let colWidths = remainingRowspan.map(x => baseColWidth / x.length);
-        let innerHead = [" ", "Mon", "Tue", "Wed", "Thu", "Fri"].map((x, i) =>
+        // let colWidths = remainingRowspan.map(x => baseColWidth / x.length);
+        let colWidthsPercent = remainingRowspan.map(x => 20 / x.length);
+        const wkday_str = [" ", "Mon", "Tue", "Wed", "Thu", "Fri"];
+        let colGroups = <colgroup>{
+            wkday_str.map((x, i) =>
+                <col
+                    key={`col-${x}`}
+                    span={i == 0 ? 1 : remainingRowspan[i - 1].length}
+                    className={i == 0 ? "sched-timecol" : "sched-weekcol"}
+                    style={i == 0 ? {} : { width: `${colWidthsPercent[i - 1]}%` }}
+                />
+            )
+        }</colgroup>
+        let innerHead = wkday_str.map((x, i) => // th style={{ width: i == 0 ? timeColWidth : baseColWidth, maxWidth: i == 0 ? timeColWidth : baseColWidth }}
             <th
                 key={`h-${x}`}
                 colSpan={i == 0 ? 1 : remainingRowspan[i - 1].length}
-                style={{ width: i == 0 ? timeColWidth : baseColWidth, maxWidth: i == 0 ? timeColWidth : baseColWidth }}
+
             >{x}
             </th>
         ); // TODO: try out different display formats.
+
+
+
         let innerRows = [];
 
         // convert times to 'mins since start of day'
@@ -189,8 +206,8 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
         while (curTime < endTime) {
             let thisRow = []
 
-            thisRow.push(
-                <td className="sched-timecol" style={{ width: timeColWidth, maxWidth: timeColWidth }} key={`d-${curTime}`}>
+            thisRow.push(//style={{ width: timeColWidth, maxWidth: timeColWidth }}
+                <td key={`d-${curTime}`}>
                     {
                         stepCount % this.props.stepsPerLine == 0 ? SchedDisp.format_mins(curTime) : '\u00A0'
                     }
@@ -244,8 +261,9 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
                         thisRow.push(<td key={`${wkday}-${excl_idx}-${curTime}`}
                             className={`sched-emptycell${cell_lbd}${cell_rbd}`}
                             style={{
-                                width: colWidths[wkidx],
-                                maxWidth: colWidths[wkidx]
+                                // width: colWidths[wkidx],
+                                // maxWidth: colWidths[wkidx],
+                                padding: "0"
                             }}
                         >
 
@@ -258,29 +276,43 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
                         // in this case, these are direct DOM components which will not be rerendered by change in callbackfn
                         // TODO: consider abstracting this part to a function
                         //TODO: improve tooltip methodology
+
+                        //TODO: alternate methodology to update cells highlights without re-render of entire timetable:
+                        // create each cell as its own component
+                        // create map of cell refs in this format: CourseSection -> CellRef[] mapping.
+                        // then, make the onMouseOver and onMouseLeave events call an alternate hover/leave (that does not propagate) for each of the refs
+
+                        // alternate #2: have all cell displays as part of a separate absolutely positioned div element
+                        // then, in that absolutely positioned div element, all mouseover events can be efficiently handled.
+
                         thisRow.push(
                             <td key={`${wkday}-${excl_idx}-${curTime}`}
                                 rowSpan={place_rowspan}
                                 colSpan={place_colspan}
-                                className={(place_ct.n_exclusions == 0 ? `sched-crscell` : `sched-crscell-conflict`) + (place_ct.selected ? ` sched-crscell-hover` : ``)}
-                                onMouseOver={(evt) => this.setState({ current_selection: place_ct.crs_sel })}
+                                  onMouseOver={(evt) => this.setState({ current_selection: place_ct.crs_sel })}
                                 onMouseLeave={(evt) => this.setState({ current_selection: null })}
-                                title={
-                                    `${place_ct.crs_sel.crs.course_code.substr(0, 6)} ${place_ct.crs_sel.sec.section_id}
-${SchedDisp.format_timelist(place_ct.tslot.start_time)}-${SchedDisp.format_timelist(place_ct.tslot.end_time)}
-${place_ct.tslot.room_name_1}`
-                                }
                                 style={{
-                                    width: colWidths[wkidx],
-                                    maxWidth: colWidths[wkidx]
+                                    // width: colWidths[wkidx],
+                                    //maxWidth: colWidths[wkidx],
+                                    padding: "0"
                                 }}
                             >
-
-                                {place_ct.crs_sel.crs.course_code.substr(0, 6)} {place_ct.crs_sel.sec.section_id}
-                                <br />
-                                {SchedDisp.format_timelist(place_ct.tslot.start_time)}-{SchedDisp.format_timelist(place_ct.tslot.end_time)}
-                                <br />
-                                {place_ct.tslot.room_name_1}
+                                <div
+                                    title={
+                                        `${place_ct.crs_sel.crs.course_code.substr(0, 6)} ${place_ct.crs_sel.sec.section_id}
+${SchedDisp.format_timelist(place_ct.tslot.start_time)}-${SchedDisp.format_timelist(place_ct.tslot.end_time)}
+${place_ct.tslot.room_name_1}`
+                                    }
+                                    className={(place_ct.n_exclusions == 0 ? `sched-crscell` : `sched-crscell-conflict`) + (place_ct.selected ? ` sched-crscell-hover` : ``)}
+                              
+                                >
+                                    {place_ct.crs_sel.crs.course_code.substr(0, 6)} {place_ct.crs_sel.sec.section_id}
+                                    <br />
+                                    {SchedDisp.format_timelist(place_ct.tslot.start_time)}-{SchedDisp.format_timelist(place_ct.tslot.end_time)}
+                                    <br />
+                                    {place_ct.tslot.room_name_1}
+                                    <AlternateSectionButton />
+                                </div>
                             </td>
                         );
                         place_ct.placed = true;
@@ -306,7 +338,8 @@ ${place_ct.tslot.room_name_1}`
                 // no line
                 rowClass = "sched-rownone";
             }
-            innerRows.push(<tr className={rowClass} style={{ height: rowHeight }} key={`r-${curTime}`}>{thisRow}</tr>)
+            // style={{ height: rowHeight }}
+            innerRows.push(<tr className={rowClass} key={`r-${curTime}`}>{thisRow}</tr>)
             curTime += this.props.stepMins;
 
             stepCount++;
@@ -317,6 +350,7 @@ ${place_ct.tslot.room_name_1}`
 
         return (
             <table>
+                {colGroups}
                 <thead>
                     <tr>
                         {innerHead}

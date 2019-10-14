@@ -64,25 +64,26 @@ def parse_data(data):
             assert (len(weekdays_list) == len(start_time_list))
             assert (len(start_time_list) == len(end_time_list))
 
-            if(len(start_time_list) == 0):
-                if(is_cancelled):
+            if (len(start_time_list) == 0):
+                if (is_cancelled):
                     print("INFO - SECTION IS CANCELLED: ", course_code, section_name)
                 else:
                     print("INFO - NO TIMESLOTS FOR COURSE SECTION: ", course_code, section_name, len(notes))
-            if(is_cancelled):
+            if (is_cancelled):
                 print("INFO - SECTION IS CANCELLED BUT HAS TIMESLOTS: ", course_code, section_name)
 
             if term in ('F', 'S'):
                 room_list = [text.strip() for text in room_node.itertext() if len(text.strip()) > 0]
                 c_section_timeslots = [Timeslot(wk, strt, end, rm, rm) for wk, strt, end, rm in \
                                        zip(weekdays_list, start_time_list, end_time_list, room_list)]
-            elif term == 'Y': # for Y course, room_list is of format (slot1 F, slot1 S, slot2 F, slot2 S, etc)
+            elif term == 'Y':  # for Y course, room_list is of format (slot1 F, slot1 S, slot2 F, slot2 S, etc)
                 # print("test:", course_code)
                 room_list = [x.xpath('span') for x in room_node.xpath('div')]
-                room_list_grp = [[''.join(x[0].itertext()).strip(), ''.join(x[1].itertext()).strip()] for x in room_list]
+                room_list_grp = [[''.join(x[0].itertext()).strip(), ''.join(x[1].itertext()).strip()] for x in
+                                 room_list]
                 # print("test:", course_code, room_list_grp, weekdays_list)
-                assert(all(len(x) == 2 for x in room_list_grp))
-                if(len(room_list_grp) != len(weekdays_list)):
+                assert (all(len(x) == 2 for x in room_list_grp))
+                if (len(room_list_grp) != len(weekdays_list)):
                     print("WARN ROOM INCONSISTENCY:", course_code, room_list_grp, weekdays_list)
 
                 # room_list_grp = [room_list[i:i+2] for i in range(0, len(room_list), 2)]
@@ -120,27 +121,36 @@ def save_term_data(yr_of_study, term_code):
     with open(term_code + "_" + yr_of_study, 'w') as f:
         f.write(jsonpickle.encode(parsed_list, unpicklable=False))
 
-all_list = []
 
-term_code = '20199'
-for yr_of_study in [str(x) for x in range(1,5)]:
-    print("Retrieve data for year " + yr_of_study)
-    ## dl raw data
-    #rawdata = get_raw_tt(yr_of_study, term_code)
+def scrape_utm(session, useLocal=False):
+    """
 
-    ## use saved raw data
-    with open("utm_" + yr_of_study, 'rb') as f:
-        rawdata = f.read()
+    :param session: 20199
+    :param useLocal: Use locally cached copy of data to re-parse instead of downloading new data.
+    :return:
+    """
+    all_list = []
 
-    ## save raw data
-    #with open("utm_" + yr_of_study, 'wb') as f:
-    #    f.write(rawdata)
-    all_list.extend(parse_data(rawdata))
+    for yr_of_study in [str(x) for x in range(1, 5)]:
+        print("Retrieve data for year " + yr_of_study)
 
-all_list.sort(key=lambda c:c.course_code)
+        filename = "utm_{0}_{1}".format(session, yr_of_study)
 
-with open("course_data_utm_"+term_code, 'w') as f:
-    f.write(jsonpickle.encode(all_list, unpicklable=False))
+        if useLocal:
+            with open(filename, 'rb') as f:
+                rawdata = f.read()
+        else:
+            rawdata = get_raw_tt(yr_of_study, session)
+
+            with open(filename, 'wb') as f:
+                f.write(rawdata)
+
+        all_list.extend(parse_data(rawdata))
+
+    all_list.sort(key=lambda c: c.course_code)
+
+    with open("course_data_utm_{0}".format(session), 'w') as f:
+        f.write(jsonpickle.encode(all_list, unpicklable=False))
 
 
 # save_term_data('1', '20199')

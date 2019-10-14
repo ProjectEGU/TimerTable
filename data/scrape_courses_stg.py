@@ -9,6 +9,18 @@ from course import *
 from schedule import *
 import requests
 
+
+def get_url(session, term):
+    return "https://timetable.iit.artsci.utoronto.ca/api/{0}/courses?org=&code=&section={1}&studyyear=&daytime=&weekday=&prof=&breadth=&online=&waitlist=&available=&title=".format(
+        session, term
+    )
+
+
+def get_stg_json(session, term):
+    r = requests.get(get_url(session, term))
+    return r.content
+
+
 def load_from_stg_json(filepath):
     with open(filepath, "r") as f:
         jsonObj = json.loads(f.read())
@@ -30,7 +42,9 @@ def load_from_stg_json(filepath):
             sect_n = sections_n[section_name]
             if sect_n["cancel"] == "Cancelled":
                 continue
-            instructors_list = [sect_n['instructors'][id]["lastName"] + ". " + sect_n['instructors'][id]["firstName"] + "." for id in sect_n['instructors']]
+            instructors_list = [
+                sect_n['instructors'][id]["lastName"] + ". " + sect_n['instructors'][id]["firstName"] + "." for id in
+                sect_n['instructors']]
             curr_enrolled = sect_n['actualEnrolment']
             max_enrolled = sect_n['enrollmentCapacity']
             waitlisted_count = sect_n['actualWaitlist']
@@ -47,16 +61,15 @@ def load_from_stg_json(filepath):
                 if weekday is None:
                     continue
 
-                print(course_code, start_time)
-                if term in ('F','Y','S'):
+                if term in ('F', 'Y', 'S'):
                     timeslots_list.append(Timeslot(weekday, start_time, end_time, room1, room2))
                 else:
                     raise Exception("Invalid term " + term)
 
-            if(len(timeslots_list) == 0):
+            if (len(timeslots_list) == 0):
                 print("INFO - NO TIMESLOTS FOR COURSE SECTION: ", course_code, section_name)
 
-            c_section = SingleSection(section_name.replace('-',''), instructors_list, "", curr_enrolled,
+            c_section = SingleSection(section_name.replace('-', ''), instructors_list, "", curr_enrolled,
                                       max_enrolled, waitlisted_count, timeslots_list)
 
             section_type = section_name[0:3]
@@ -69,7 +82,7 @@ def load_from_stg_json(filepath):
                 raise Exception("Invalid section id. It must start with PRA, LEC, or TUT.")
 
         course_list.append(
-            Course(course_code+term, course_title, course_info, enrl_controls, term, c_sections_dict)
+            Course(course_code + term, course_title, course_info, enrl_controls, term, c_sections_dict)
         )
 
     for c in course_list:
@@ -79,13 +92,21 @@ def load_from_stg_json(filepath):
         # start_time_list, end_time_list, room_list, notes)
     return course_list
 
-parsed_list = load_from_stg_json("courses20199_F.json")
-parsed_list += load_from_stg_json("courses20199_S_mod.json")
-parsed_list += load_from_stg_json("courses20199_Y_mod.json")
 
-parsed_list.sort(key=lambda c: c.course_code)
+def scrape_stg_artsci(session, useLocal=False):
+    parsed_list = []
 
-with open("course_data_stg_artsci_20199", 'w') as f:
-    f.write(jsonpickle.encode(parsed_list, unpicklable=False))
+    for term in ('F', 'S', 'Y'):
+        filename = "stg_artsci_{0}_{1}.json".format(session, term)
+        if not useLocal:
+            with open(filename, 'wb') as f:
+                f.write(get_stg_json(session, term))
 
-#"https://timetable.iit.artsci.utoronto.ca/api/{0}/courses?org=&code=&section={1}&studyyear=&daytime=&weekday=&prof=&breadth=&online=&waitlist=&available=&title=".format(session_id, term)
+        parsed_list.extend(load_from_stg_json(filename))
+
+    parsed_list.sort(key=lambda c: c.course_code)
+
+    with open("course_data_stg_artsci_{0}".format(session), 'w') as f:
+        f.write(jsonpickle.encode(parsed_list, unpicklable=False))
+
+# "https://timetable.iit.artsci.utoronto.ca/api/{0}/courses?org=&code=&section={1}&studyyear=&daytime=&weekday=&prof=&breadth=&online=&waitlist=&available=&title=".format(session_id, term)

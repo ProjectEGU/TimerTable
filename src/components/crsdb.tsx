@@ -1,4 +1,4 @@
-import { Course, CourseSelection, CourseSection, Timeslot } from "./course"
+import { Course, CourseSelection, CourseSection, Timeslot } from "./course";
 
 import { DLXMatrix } from "./dlxmatrix"
 import { AssertionError } from "assert";
@@ -6,7 +6,7 @@ import { AssertionError } from "assert";
 export enum Campus {
     UTM = 'utm',
     STG_ARTSCI = 'stg_artsci',
-    UTSC = 'utsc'
+    // UTSC = 'utsc'
 }
 
 export class crsdb {
@@ -17,6 +17,7 @@ export class crsdb {
     static crs_store = {}; // crs data store: crs_store[campus][session] : Course[]
     static crs_store_prefix = {}; // crs data store (uppercase prefix tree): crs_store[campus][session][letter1][letter2][letter3] : Course[]
 
+    public static data_updated_date: Date = null;
     static async fetch_crs_data(campus, session, force_reload = false): Promise<Course[]> {
         // Check if current campus exist. If not, then add it.
         if (!(campus in crsdb.crs_store)) {
@@ -29,7 +30,7 @@ export class crsdb {
         }
 
         // Otherwise, continue to fetch data.
-        let crs_data: Course[] = await fetch(`/data/course_data_${campus}_${session}`).then(
+        let crs_data: Course[] = await fetch(`/data/course_data_${campus}_${session}`, { headers: {} }).then(
             (response) => {
                 if (!response.ok) {
                     throw new Error(response.statusText);
@@ -46,6 +47,7 @@ export class crsdb {
                 crs.campus = campus;
                 crs.session = session;
                 crs.unique_id = `${campus}-${session}-${crs.course_code}`;
+                // map_pos will be of format: {}{}{}[]
                 let map_pos = crs_map;
                 for (let idx = 0; idx < 3; idx++) {
                     let letter = crs.course_code[idx].toUpperCase();
@@ -60,6 +62,16 @@ export class crsdb {
             return data;
         });
 
+        let updated_date_str = await fetch(`data/crs_data_last_updated.txt`).then(
+            (response) => {
+                if (!response.ok)
+                    crsdb.data_updated_date = null;
+                else return response.text();
+            }
+        );
+
+        crsdb.data_updated_date = updated_date_str == null ? null : new Date(updated_date_str);
+
         return crs_data;
     }
 
@@ -69,7 +81,6 @@ export class crsdb {
      * TODO: consider building prefix tree class which takes in a data store, and several types of keys, and generates up to N characters of prefix arrangement for each key (strings only)
      */
     static list_crs_by_code(campus, session, crs_code: string): Course[] {
-        // console.log('lookup: ' + crs_code);
         if (crs_code.length < 3) return [];
         crs_code = crs_code.toUpperCase();
         let crs_list = crsdb.crs_store_prefix[campus] &&
@@ -89,7 +100,6 @@ export class crsdb {
      * @param section_ids 
      */
     static get_crs_selections(crs: Course, ...section_ids: string[]) {
-        console.log(crs);
         let output: CourseSelection[] = [];
         let satisfy_sections = Object.keys(crs.course_sections); // list of sectypes to satisfy
         section_ids.forEach((secId) => {
@@ -127,17 +137,10 @@ export class crsdb {
      * @param session 
      * @param crs_code 
      */
-    static get_crs_by_code(campus, session, crs_code) {
+    static get_crs_by_code(campus: Campus, session: string, crs_code) {
         let result = crsdb.list_crs_by_code(campus, session, crs_code);
         if (result.length != 1) return null;
         return result[0];
-        /*let output = this.get_crs(campus, session, (crs: Course) => {
-            return crs.course_code == crs_code;
-        });
-        if (!output) {
-            throw `Error finding course: ${crs_code} at ${campus} session ${session}`;
-        }
-        return output;*/
     }
 
     // TODO: search crs functionality. - possibly for multiple courses

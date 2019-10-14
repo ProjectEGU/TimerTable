@@ -10,13 +10,18 @@ interface crs_choice {
     secs: CourseSection[]
 }
 
+export interface SchedSearchResult {
+    solutionSet: CourseSelection[][],
+    solutionLimitReached: boolean
+}
+
 export class crs_arrange {
     constructor(params) {
 
     }
     // TODO: implement course exclusion (ie need to take CHM135, it's offered in both semesters, but only need to pick one semester.)
-    public static find_sched(crs_list: CourseSelection[]): CourseSelection[][] {
-        if (crs_list.length == 0) return [];
+    public static find_sched(crs_list: CourseSelection[], solution_limit:number): SchedSearchResult {
+        if (crs_list.length == 0) return { solutionSet: [], solutionLimitReached: false };
 
         // TODO: For each section for the same course with the same timeslots and type, we group them together.
         //          In the result, we can select alternate section with the exact same timeslot with dropdown option
@@ -89,18 +94,10 @@ export class crs_arrange {
                 let ts2: Timeslot[] = crs_list[idx2].sec.timeslots;
 
                 if (crsdb.is_timeslots_conflict(ts1, ts2)) {
-                    /* console.log(crs_list[idx1].crs.course_code + " " + crs_list[idx1].sec.section_id
-                         + " conflict with " + crs_list[idx2].crs.course_code + " " + crs_list[idx2].sec.section_id);*/
                     data[idx1][n_primary_cols + n_exclusions] = 1;
                     data[idx2][n_primary_cols + n_exclusions] = 1;
                     n_exclusions += 1;
-                } else {
-                    /*console.log(crs_list[idx1].crs.course_code + " " + crs_list[idx1].sec.section_id
-                    + " does oke with " + crs_list[idx2].crs.course_code + " " + crs_list[idx2].sec.section_id);
-                    console.log(ts1);
-                    console.log(ts2);*/
                 }
-
             }
         }
 
@@ -113,9 +110,10 @@ export class crs_arrange {
         let mat: DLXMatrix<CourseSelection>
             = DLXMatrix.Initialize<CourseSelection>(n_rows, n_cols, crs_list, data, n_primary_cols);
 
+        mat.SetSolutionLimit(solution_limit);
         mat.Solve();
-        
+
         // Interpret the results
-        return mat.solutionSet;
+        return { solutionSet: mat.solutionSet, solutionLimitReached: mat.solutionLimitReached };
     }
 }

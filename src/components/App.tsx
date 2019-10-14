@@ -8,10 +8,11 @@ import { DLXMatrix } from "./dlxmatrix"
 import { crsdb, Campus } from "./crsdb"
 import { Course, CourseSection, CourseSectionsDict, Timeslot, CourseSelection } from "./course"
 import { SchedDisp } from "./sched_disp";
-import { AutoComplete, Button, Card, Tabs, Icon, Input, Badge, Collapse, Pagination } from 'antd';
+import { AutoComplete, Button, Card, Tabs, Icon, Input, Badge, Collapse, Pagination, Popover, Checkbox } from 'antd';
 import { AutoCompleteProps } from "antd/lib/auto-complete";
 import { AssertionError } from "assert";
-import { crs_arrange } from "./schedule";
+import { crs_arrange, SchedSearchResult } from "./schedule";
+import { SettingsButton } from "./settings_button";
 
 interface AppProps {
 
@@ -35,19 +36,39 @@ interface CrsState {
 
 interface AppState {
     data_loaded: boolean;
-    data: Course[];
+    data_updated_date: string;
     crs_search_str: string;
     crs_search_dropdown_open: boolean;
-    cur_campus: string;
+    cur_campus_set: Set<Campus>;
     cur_session: string;
+    cur_search_status: string;
 
     crs_state: CrsState;
 
     search_crs_list: Course[];
     search_result: CourseSelection[][];
     search_result_idx: number;
+    search_result_limit: number;
 }
 
+/**
+ * Oct 14 :
+ * - Change timetable display to use position:absolute with nested div
+ * - Add course selection button and made it its own component
+ * - Implemented settings menu interface and functionality
+ *      - Implement search from multiple campuses
+ * - Implemented a solution limit to the schedule finding algorithm
+ *      - This solution limit, should it be toggled from the options?
+ * - Display status of search result in the label above the pagination
+ * - Add instructions to overall web page
+ * - Add display for date when data was updated
+ * 
+ * Oct 15 : 
+ * - Change algorithm to support grouping of 'equivalent' sections together into a single search result.
+ * - Allow selection of equivalent sections.
+ * - Download the courses file as gzip
+ * - Package for online distribution on github
+ */
 class App extends React.Component<AppProps, AppState> {
     dropdownRef: React.RefObject<AutoComplete>;
     constructor(props) {
@@ -59,10 +80,11 @@ class App extends React.Component<AppProps, AppState> {
         // Set the state directly. Use props if necessary.
         this.state = {
             data_loaded: false,
-            data: [],
+            data_updated_date: "(unable to get data loaded date)",
             crs_search_str: "",
             crs_search_dropdown_open: false,
-            cur_campus: Campus.UTM,
+
+            cur_campus_set: new Set<Campus>([Campus.STG_ARTSCI]),
             cur_session: "20199",
 
             crs_state: {
@@ -70,33 +92,39 @@ class App extends React.Component<AppProps, AppState> {
                 crs_sections: []
             },
 
+            cur_search_status: null,
+
             search_crs_list: [],
 
             search_result: [],
-            search_result_idx: 0
+            search_result_idx: 0,
+
+            search_result_limit: 200
         }
     }
 
     componentDidMount() {
-        crsdb.fetch_crs_data(this.state.cur_campus, this.state.cur_session).then(
-            (data: Course[]) => {
-                // console.log(data);
-                // setstate data
-                this.setState({ data_loaded: true, data: data });
-            }
-        ).catch((err) => {
-            console.log(err);
-            // setstate err
-        });
+
+        // Get values of enum: Object.keys(ENUM).map(key=>ENUM[key])
+        // https://stackoverflow.com/a/39372911/4051435
+        // Promise.all will return a new promise that resolves when the input list of promises have resolved.
+        // It will resolve with an array of results for each promise in the input list.
+        // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise/all
+        Promise.all(Object.keys(Campus).map(key => Campus[key]).map(campus => {
+            return crsdb.fetch_crs_data(campus, this.state.cur_session)
+                .catch((err) => {
+                    console.log(err);
+                    // setstate err
+                });
+        })).then(() => {
+            console.log(crsdb.data_updated_date);
+            this.setState({
+                data_loaded: true,
+                data_updated_date: crsdb.data_updated_date == null ? "(unable to get updated date)" : crsdb.data_updated_date.toDateString().substring(4)
+            });
+        }).catch(err => console.log(err));
     }
 
-    crs_getByCode(crs_code: string): Course {
-        crs_code = crs_code.toUpperCase();
-        let crsObj = crsdb.get_crs_by_code(this.state.cur_campus, this.state.cur_session, crs_code);
-        console.assert(crsObj != null);
-
-        return crsObj;
-    }
     crs_listAllSections(crs: Course): CourseSelection[] {
         let output: CourseSelection[] = [];
         Object.keys(crs.course_sections).forEach(sec_type => {
@@ -112,7 +140,8 @@ class App extends React.Component<AppProps, AppState> {
             return;
         this.setState({
             search_result: [],
-            search_crs_list: this.state.search_crs_list.concat(crsObj)
+            search_crs_list: this.state.search_crs_list.concat(crsObj),
+            cur_search_status: null
         });
     }
 
@@ -120,18 +149,41 @@ class App extends React.Component<AppProps, AppState> {
         console.assert(this.state.search_crs_list.findIndex(crs => crs.unique_id == crsObj.unique_id) != -1);
         this.setState({
             search_result: [],
-            search_crs_list: this.state.search_crs_list.filter(crs => crs != crsObj)
+            search_crs_list: this.state.search_crs_list.filter(crs => crs != crsObj),
+            cur_search_status: null
         });
     }
 
     crs_doSearch() {
+        if(this.state.search_crs_list.length == 0)
+        {
+            this.setState({
+                search_result: [],
+                search_result_idx: 0,
+                cur_search_status: "no courses selected"
+            });
+            return;
+        }
+
         let all_sections: CourseSelection[] = [];
         this.state.search_crs_list.forEach((crs) => {
             all_sections.push(...this.crs_listAllSections(crs));
         });
+        let search_result: SchedSearchResult = crs_arrange.find_sched(all_sections, this.state.search_result_limit);
+        let search_status: string;
+        if (search_result.solutionSet.length == 0) {
+            search_status = "no feasible schedules found";
+        }
+        else if (search_result.solutionLimitReached) {
+            console.assert(search_result.solutionSet.length == this.state.search_result_limit);
+            search_status=`limit of ${this.state.search_result_limit} schedules reached`
+        } else {
+            search_status=`${search_result.solutionSet.length} schedules found`
+        }
         this.setState({
-            search_result: crs_arrange.find_sched(all_sections),
-            search_result_idx: 0
+            search_result: search_result.solutionSet,
+            search_result_idx: 0,
+            cur_search_status: search_status
         });
     }
 
@@ -161,42 +213,56 @@ class App extends React.Component<AppProps, AppState> {
         });
     }
 
+    crs_listAllCourses(campus_set: Set<Campus>, session: string, search_str: string): Course[] {
+        let all_results = [];
+        campus_set.forEach(campus => {
+            all_results.push(...crsdb.list_crs_by_code(campus, session, search_str));
+        });
+
+        return all_results;
+    }
+
     public render() {
 
         if (this.state.data_loaded) {
         }
         // TODO: add buttons that show on hover: Info (contains edit sections / remove functionality), Edit sections, Remove
 
-        let dataSource = (this.state.data_loaded && this.state.crs_search_str.length > 2) ?
-            crsdb.list_crs_by_code(this.state.cur_campus, this.state.cur_session, this.state.crs_search_str)
-                .map(crs => {
-                    let crs_code = crs.course_code;
-                    let crs_title = crs.course_name;
-                    return (
-                        <AutoComplete.Option key={crs_code} value={crs_code} style={{
-                            overflow: "hidden",
-                            textOverflow: "clip",
-                            whiteSpace: "nowrap",
-                            width: "100%",
-                            height: "100%",
-                            display: "flex",
-                            alignItems: "center",
-                            padding: "0 0 0 0"
-                        }}>
-                            <div onClick={(evt: React.MouseEvent<HTMLDivElement, MouseEvent>) => {
+        let dataSource = [];
+
+        if (this.state.data_loaded && this.state.crs_search_str.length > 2) {
+            let crs_results = this.crs_listAllCourses(this.state.cur_campus_set, this.state.cur_session, this.state.crs_search_str);
+            dataSource = crs_results.map(crs => {
+                let crs_code = crs.course_code;
+                let crs_title = crs.course_name;
+                return (
+                    <AutoComplete.Option key={crs_code} value={crs_code} style={{
+                        overflow: "hidden",
+                        textOverflow: "clip",
+                        whiteSpace: "nowrap",
+                        width: "100%",
+                        height: "100%",
+                        display: "flex",
+                        alignItems: "center",
+                        padding: "0 0 0 0"
+                    }}>
+                        <div
+                            style={{ padding: "5px 12px 5px 12px", width: "100%" }}
+                            onClick={(evt: React.MouseEvent<HTMLDivElement, MouseEvent>) => {
                                 evt.preventDefault(); evt.stopPropagation();
                                 // this.dropdownRef.current.blur();
 
                                 // this.crs_addAllSections(crs);
                                 this.crs_addSearchCrs(crs);
                             }}
-                                style={{ padding: "5px 12px 5px 12px", width: "100%" }}
-                            > {crs_code}: {crs_title} [{Object.keys(crs.course_sections).join(',')}]</div>
-                        </AutoComplete.Option>
+                        >
+                            {this.state.cur_campus_set.size > 1 ? `[${crs.campus.substring(0, 4).replace('_', '').trim()}] ` : null /*  */}
+                            {crs_code}: {crs_title} {/*[{Object.keys(crs.course_sections).join(',')}]*/}</div>
+                    </AutoComplete.Option>
 
-                    );
-                })
-            : [];
+                );
+            });
+        }
 
         let crs_disp_items = this.state.crs_state.crs_obj_list.map(crs => {
             return (
@@ -216,17 +282,46 @@ class App extends React.Component<AppProps, AppState> {
                     <span style={{ float: "left" }}>{crs.course_code}</span>
                     <span style={{ float: "right" }}>&nbsp;<Icon type="close" onClick={() => {
                         this.crs_removeSearchCrs(crs);
+                        
                     }} /></span>
                     <br />
                 </div>
             );
         });
+
+        if (crs_search_items.length == 0) {
+            crs_search_items = [(
+                <p key="1"></p>
+            )];
+        }
+
         const showSearchResults = this.state.search_result.length > 0;
         let sectionsList = showSearchResults ? this.state.search_result[this.state.search_result_idx] : this.state.crs_state.crs_sections;
+
+        /**********
+         * Uncomment below to test the conflict display system*/
+        /*if (this.state.data_loaded) {
+            let ccc = [];
+            //test 2 courses
+            ccc.push(...crsdb.get_crs_selections(crsdb.get_crs_by_code("utm", "20199", "CSC367H5F"), "LEC0101", "PRA0101"));
+            ccc.push(...crsdb.get_crs_selections(crsdb.get_crs_by_code("utm", "20199", "CSC411H5F"), "LEC0101", "TUT0102"));
+            //test conflicting courses
+            ccc.push(...crsdb.get_crs_selections(crsdb.get_crs_by_code("utm", "20199", "CSC236H5F"), "LEC0103", "TUT0101"));
+            ccc.push(...crsdb.get_crs_selections(crsdb.get_crs_by_code("utm", "20199", "CSC290H5F"), "TUT0102", "LEC0101"));
+            ccc.push(...crsdb.get_crs_selections(crsdb.get_crs_by_code("utm", "20199", "CSC324H5F"), "LEC0101", "PRA0101"));
+            ccc.push(...crsdb.get_crs_selections(crsdb.get_crs_by_code("utm", "20199", "CSC347H5F"), "PRA0103", "LEC0101"));
+            ccc.push(...crsdb.get_crs_selections(crsdb.get_crs_by_code("utm", "20199", "CSC411H5F"), "LEC0102", "TUT0101"));
+            ccc.push(...crsdb.get_crs_selections(crsdb.get_crs_by_code("utm", "20199", "CSC477H5F"), "PRA0101", "LEC0101"));
+            ccc.push(...crsdb.get_crs_selections(crsdb.get_crs_by_code("utm", "20199", "CHI311H5F"), "LEC0101"));
+            ccc.push(...crsdb.get_crs_selections(crsdb.get_crs_by_code("utm", "20199", "MAT102H5F"), "TUT0126", "LEC0101"));
+            sectionsList = ccc;
+        }*/
+
+
         let crs_dropdown_open = this.state.crs_search_dropdown_open && dataSource.length > 0;
         return (
             <div className="app">
-                <div style={{ float: "left", width: "800px" }}>
+                <div style={{ float: "left", width: "60%" }}>
                     <Tabs defaultActiveKey="1" tabPosition="top" >
                         <Tabs.TabPane tab="Fall" key="1">
                             <SchedDisp crs_selections={sectionsList} show_term={"F"} />
@@ -242,18 +337,27 @@ class App extends React.Component<AppProps, AppState> {
                 </div>
                 <div className="ctrls" style={{ float: "left", width: "400px" }}>
                     <Collapse
+                        bordered={false}
                         defaultActiveKey={['1', '3']}
                     >
-                        <Collapse.Panel header="Current Courses List" key="1" disabled showArrow={false} extra={<Badge
-                            count={4}
-                            style={{ userSelect: "none", backgroundColor: '#fff', color: '#999', boxShadow: '0 0 0 1px #d9d9d9 inset' }}
-                        />}>
-                            <Card size="small" style={{ width: "auto" }}>
+                        <Collapse.Panel header="Courses list" key="1" disabled showArrow={true} extra={
+                            <SettingsButton
+                                currentSettings={{
+                                    selectedCampus: this.state.cur_campus_set
+                                }}
+                                onSettingsModified={(newSettings) => {
+                                    this.setState({ cur_campus_set: newSettings.selectedCampus });
+                                }}
+                            />
+                        }>
+                            {/*<Card size="small" style={{ width: "auto" }}>
                                 <p>Select courses:</p>
                                 {crs_disp_items}
-                            </Card>
+                        </Card>*/}
+
                             <Card size="small" style={{ width: "auto" }}>
-                                <p>Search Courses:</p>
+                                <p>Select courses from the dropdown below, and then press the 'Search' button to generate schedules.</p>
+                                <p>Your list of courses will appear below.</p>
                                 {crs_search_items}
                             </Card>
                             <label>Add a course:</label>
@@ -298,43 +402,50 @@ class App extends React.Component<AppProps, AppState> {
 
                                 />
                             </AutoComplete>
-                        </Collapse.Panel>
-                        <Collapse.Panel header="Constraints" key="2" showArrow={false} extra={<Badge
-                            count={4}
-                            style={{ userSelect: "none", backgroundColor: '#fff', color: '#999', boxShadow: '0 0 0 1px #d9d9d9 inset' }}
-                        />}>
-                            <div></div>
-                        </Collapse.Panel>
-                        <Collapse.Panel header="Search" key="3" showArrow={false} extra={<Badge
-                            count={4}
-                            style={{ userSelect: "none", backgroundColor: '#fff', color: '#999', boxShadow: '0 0 0 1px #d9d9d9 inset' }}
-                        />}>
 
+                        </Collapse.Panel>
+                        {/*<Collapse.Panel header="Constraints" key="2" showArrow={true}>
+                            <p>This is currently a work in progress.</p>
+                                        </Collapse.Panel>*/}
+                        <Collapse.Panel header="Search" key="3" showArrow={true} >
+                            {/*extra={<Badge
+    count={4}
+    style={{ userSelect: "none", backgroundColor: '#fff', color: '#999', boxShadow: '0 0 0 1px #d9d9d9 inset' }}
+/>}*/}
                             <div>
-                                <span>View Result:</span>
-                                <span><Pagination
-                                    current={this.state.search_result.length == 0 ? 0 : this.state.search_result_idx + 1}
-                                    disabled={this.state.search_result.length == 0}
-                                    simple
-                                    defaultCurrent={0}
-                                    total={this.state.search_result.length}
-                                    pageSize={1}
-
-                                    style={{ width: "66%" }}
-                                    onChange={(idx) => {
-                                        idx -= 1;
-                                        if (idx >= this.state.search_result.length || idx < 0) return;
-                                        else this.setState({ search_result_idx: idx });
-                                    }}
-                                />
-                                    <Button icon="search" onClick={this.crs_doSearch.bind(this)}
-                                        style={{ marginTop: "15px", marginBottom: "15px", float: "right", bottom: "43px" }}
-                                    >
-                                        Search
+                                Press the button below to search for schedules
+                                <Button icon="search" onClick={this.crs_doSearch.bind(this)}
+                                    style={{}}
+                                >
+                                    Search
                             </Button>
-                                </span>
+                                <div style={{ marginTop: "10px", marginBottom: "10px" }}>
+                                    {this.state.cur_search_status == null ? "View Results:" : `View results (${this.state.cur_search_status}):`}
+                                </div>
+                                <div>
+                                    <Pagination
+                                        current={this.state.search_result.length == 0 ? 0 : this.state.search_result_idx + 1}
+                                        disabled={this.state.search_result.length == 0}
+                                        simple
+                                        defaultCurrent={0}
+                                        total={this.state.search_result.length}
+                                        pageSize={1}
+                                        style={{ marginBottom: "10px" }}
+                                        onChange={(idx) => {
+                                            idx -= 1;
+                                            if (idx >= this.state.search_result.length || idx < 0) return;
+                                            else this.setState({ search_result_idx: idx });
+                                        }}
+                                    />
+
+                                </div>
                                 <span style={{ float: "right" }}></span>
                             </div>
+                        </Collapse.Panel>
+                        <Collapse.Panel header="About" key="4" showArrow={true}>
+                            <p>Source Code: <a target="_blank" href="https://github.com/ProjectEGU/TimerTable">View on GitHub</a></p>
+                            <p>{this.state.data_loaded ? `Data last updated: ${this.state.data_updated_date}` : "Loading data in progress..."}</p>
+                            <p>This project is currently a work in progress.</p>
                         </Collapse.Panel>
                     </Collapse>
                 </div>
