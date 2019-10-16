@@ -79,6 +79,7 @@ interface AppState {
  * X Transition on mouseover of timetable slots
  * 
  * Other task :
+ * - Make new CSS class for disabling selections, and apply it to parts where appropriate.
  * - Mobile display with menu
  * - Download the courses file as gzip
  * - Replace course list with a 'list' component which will allow removal / modification
@@ -89,9 +90,12 @@ interface AppState {
  * - Improve filtering of 'dead' sections, which cannot be enrolled in for any reason.
  * - Display 'unable to retrieve course data' only once when failing
  * 
+ * - configurable color schemes for different courses on the TT
+ * 
  * Longer term goals : 
  * - Automated testing of correctness
  *  - involves writing independent python backtracking calculation tool, which will operate on the same data set
+ *  - dump all results in txt format (order-independent) and check for dupes
  * - Selection of constraints 
  *  - Only specific sections of a course to consider
  *  - Remove sections in specific blacklisted timeslots
@@ -222,7 +226,9 @@ class App extends React.Component<AppProps, AppState> {
             search_result: search_result.solutionSet,
             search_result_idx: 0,
             cur_search_status: search_status,
-            search_result_selections: new Array<number>(search_result.solutionSet.length).fill(0)
+            // TODO: create separate method for grouping courses, make it part of crsdb
+            // TODO: use a map of crsgrp -> sel_idx as the search_result_selections, to help implement persistence
+            search_result_selections: new Array<number>(all_sections.length).fill(0)
         });
     }
 
