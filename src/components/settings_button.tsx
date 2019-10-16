@@ -10,6 +10,7 @@ export interface SettingsInfo {
 
 interface SettingsProps {
     onSettingsModified?: (newSettings: SettingsInfo) => void;
+    onSettingsCancelled?: () => void;
     currentSettings: SettingsInfo // The current unmodified settings which will be reflected in the menu once its hidden or if 'cancelled' is clicked.
 }
 
@@ -81,6 +82,11 @@ export class SettingsButton extends React.Component<SettingsProps, SettingsState
         this.setState({
             curCampusSelection: this.props.currentSettings.selectedCampus
         });
+
+         // fire off settingsCancelled event
+         if (this.props.onSettingsCancelled != undefined) {
+            this.props.onSettingsCancelled();
+        }
     }
 
     settingsUpdated() {

@@ -1,6 +1,6 @@
 table {
     height: 88vh;
-    min-height: 700px;
+    min-height: 780px;
     border-collapse: collapse;
     padding: 0px;
     width: 100%;
@@ -48,6 +48,14 @@ table th {
 .sched-crscell {
     border: 1px solid rgb(43, 126, 47);
     background-color: rgb(179, 212, 181);
+
+
+    transition: all 0.2s cubic-bezier(0.645, 0.045, 0.355, 1);
+    transition-property: all;
+    transition-duration: 0.2s;
+    transition-timing-function: cubic-bezier(0.645, 0.045, 0.355, 1);
+    transition-delay: 0s;
+
 
 }
 
@@ -101,7 +109,7 @@ table th {
 }
 
 .ant-select-dropdown-menu {
-   // max-height: 500px;
+    // max-height: 500px;
 
 }
 

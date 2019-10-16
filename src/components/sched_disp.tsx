@@ -8,7 +8,8 @@ import { AlternateSectionButton } from "./alt_sect_btn";
 
 interface SchedDispProps {
     show_term: string,
-    crs_selections: CourseSelection[],
+    crs_selections_groups: CourseSelection[][],
+    crs_selections_indices: number[],
     loading?: boolean,//show when crs data is being loaded
     next_selection?: CourseSelection, // shows a course pending to be added (such as during mouseover of a button for selection)
     startTime?: number[], // the start of the displayed time. if null, then use the earliest course start. specify as [hour, mins] in 24h format
@@ -16,7 +17,9 @@ interface SchedDispProps {
     stepMins?: number,
     stepsPerLine?: number,
     labelsPerLine?: number,
-    show_double?: boolean
+    show_double?: boolean,
+
+    onSelectionIndicesChanged?:(new_indices: number[]) => void
 }
 
 interface SchedDispState {
@@ -33,11 +36,13 @@ let wkday_idx = {
 
 interface crs_tslot // represents a single timeslot of a course selection
 {
+    crs_grp_idx: number,
     crs_sel: CourseSelection,
     tslot: Timeslot,
     n_exclusions: number,
     placed?: boolean,
-    selected: boolean
+    selected: boolean,
+    equiv_alternate_sections: CourseSelection[]
 }
 /**
  * TODO: Display different colors for course sections with waitlist or already filled.
@@ -46,7 +51,7 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
 
     static defaultProps = {
         startTime: [9, 0],
-        endTime: [20, 30],
+        endTime: [21, 30],
         stepMins: 30, // the number of minutes increase per cell
         stepsPerLine: 2,// how many steps before drawing a line
         labelsPerLine: 2, // how many steps before showing a label
@@ -60,6 +65,8 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
         this.state = {
             current_selection: null
         }
+
+        this.sectionChangedHandler = this.sectionChangedHandler.bind(this);
     }
     componentDidMount() {
 
@@ -67,6 +74,7 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
 
     componentDidUpdate() {
         console.assert(['F', 'Y', 'S'].indexOf(this.props.show_term) != -1);
+        //console.assert(this.props.crs_selections_groups.length == this.props.crs_selections_indices.length)
     }
 
     shouldComponentUpdate(nextProps: SchedDispProps, nextState: SchedDispState) {
@@ -74,8 +82,16 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
         return true;
     }
 
-    calc_tt_nodes(baseColWidth, timeColWidth, rowHeight, targetTerm) {
+    sectionChangedHandler(grp_idx, new_selected_section){
+        if(this.props.onSelectionIndicesChanged != undefined){
+            let new_indices = this.props.crs_selections_indices.slice();
+            new_indices[grp_idx] = this.props.crs_selections_groups[grp_idx].indexOf(new_selected_section);
 
+            this.props.onSelectionIndicesChanged(new_indices);
+        }
+    }
+
+    calc_tt_nodes(targetTerm) {
         // Algoritm Overview:
         /** For courses with conflict:
          * Overview: Create additional <td> within same day for max number of simultaneous conflicts
@@ -99,17 +115,22 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
         // Organize crs_list into days
         let debugArr = []
 
-        this.props.crs_selections.forEach((crs_sel) => {
+        this.props.crs_selections_groups.forEach((crs_grp, crs_grp_idx) => {
+            let crs_sel_idx = this.props.crs_selections_indices == undefined ? 0 : this.props.crs_selections_indices[crs_grp_idx];
+            let crs_sel: CourseSelection = crs_grp[crs_sel_idx];
+
             if (crs_sel.crs.term != 'Y' && crs_sel.crs.term != targetTerm)
                 return;
             crs_sel.sec.timeslots.forEach((tslot) => {
                 debugArr.push(`${tslot.weekday}: ${crs_sel.crs.course_code} ${SchedDisp.format_timelist(tslot.start_time)} - ${SchedDisp.format_timelist(tslot.end_time)}`);
                 tt_days[tslot.weekday][0].push(
                     {
+                        crs_grp_idx: crs_grp_idx,
                         crs_sel: crs_sel,
                         tslot: tslot,
                         n_exclusions: 0,
-                        selected: crs_sel == this.state.current_selection
+                        selected: crs_sel == this.state.current_selection,
+                        equiv_alternate_sections: crs_grp.filter((val, idx) => idx != crs_sel_idx)
                     } as crs_tslot
                 );
             }
@@ -171,7 +192,7 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
                 }
             } while (crs_remain.length > 0);
         });
-        // let colWidths = remainingRowspan.map(x => baseColWidth / x.length);
+
         let colWidthsPercent = remainingRowspan.map(x => 20 / x.length);
         const wkday_str = [" ", "Mon", "Tue", "Wed", "Thu", "Fri"];
         let colGroups = <colgroup>{
@@ -184,16 +205,13 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
                 />
             )
         }</colgroup>
-        let innerHead = wkday_str.map((x, i) => // th style={{ width: i == 0 ? timeColWidth : baseColWidth, maxWidth: i == 0 ? timeColWidth : baseColWidth }}
+        let innerHead = wkday_str.map((x, i) => 
             <th
                 key={`h-${x}`}
                 colSpan={i == 0 ? 1 : remainingRowspan[i - 1].length}
-
             >{x}
             </th>
-        ); // TODO: try out different display formats.
-
-
+        ); 
 
         let innerRows = [];
 
@@ -206,7 +224,7 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
         while (curTime < endTime) {
             let thisRow = []
 
-            thisRow.push(//style={{ width: timeColWidth, maxWidth: timeColWidth }}
+            thisRow.push(
                 <td key={`d-${curTime}`}>
                     {
                         stepCount % this.props.stepsPerLine == 0 ? SchedDisp.format_mins(curTime) : '\u00A0'
@@ -250,8 +268,6 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
                             // console.log(wkday + " " + ct.crs_sel.crs.course_code + " " + n_excl_grps + " " + ct.n_exclusions);
                             // console.log(wkday + " " + ct.crs_sel.crs.course_code + " " + curTime + " " + start_time);
                             place_ct = ct;
-                            if (curTime > start_time)
-                                console.warn("timetable start time is not early enough to fully show some courses. there may be display inaccuracy.");
                         }
                     });
                     let cell_lbd = excl_idx == 0 ? " sched-lbd-cell" : "";
@@ -261,12 +277,9 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
                         thisRow.push(<td key={`${wkday}-${excl_idx}-${curTime}`}
                             className={`sched-emptycell${cell_lbd}${cell_rbd}`}
                             style={{
-                                // width: colWidths[wkidx],
-                                // maxWidth: colWidths[wkidx],
                                 padding: "0"
                             }}
                         >
-
                             &nbsp;
                             </td>
                         );
@@ -289,11 +302,9 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
                             <td key={`${wkday}-${excl_idx}-${curTime}`}
                                 rowSpan={place_rowspan}
                                 colSpan={place_colspan}
-                                  onMouseOver={(evt) => this.setState({ current_selection: place_ct.crs_sel })}
+                                onMouseOver={(evt) => this.setState({ current_selection: place_ct.crs_sel })}
                                 onMouseLeave={(evt) => this.setState({ current_selection: null })}
                                 style={{
-                                    // width: colWidths[wkidx],
-                                    //maxWidth: colWidths[wkidx],
                                     padding: "0"
                                 }}
                             >
@@ -304,14 +315,21 @@ ${SchedDisp.format_timelist(place_ct.tslot.start_time)}-${SchedDisp.format_timel
 ${place_ct.tslot.room_name_1}`
                                     }
                                     className={(place_ct.n_exclusions == 0 ? `sched-crscell` : `sched-crscell-conflict`) + (place_ct.selected ? ` sched-crscell-hover` : ``)}
-                              
+
                                 >
                                     {place_ct.crs_sel.crs.course_code.substr(0, 6)} {place_ct.crs_sel.sec.section_id}
                                     <br />
                                     {SchedDisp.format_timelist(place_ct.tslot.start_time)}-{SchedDisp.format_timelist(place_ct.tslot.end_time)}
                                     <br />
                                     {place_ct.tslot.room_name_1}
-                                    <AlternateSectionButton />
+                                    {
+                                        place_ct.equiv_alternate_sections.length == 0 ? null :
+                                            <AlternateSectionButton
+                                                alternateSections={place_ct.equiv_alternate_sections}
+                                                curTimeslot={place_ct.tslot}
+                                                onSectionSelected={(new_sel_idx, new_sel_section)=>this.sectionChangedHandler(place_ct.crs_grp_idx, new_sel_section)}
+                                            />
+                                    }
                                 </div>
                             </td>
                         );
@@ -338,7 +356,7 @@ ${place_ct.tslot.room_name_1}`
                 // no line
                 rowClass = "sched-rownone";
             }
-            // style={{ height: rowHeight }}
+
             innerRows.push(<tr className={rowClass} key={`r-${curTime}`}>{thisRow}</tr>)
             curTime += this.props.stepMins;
 
@@ -368,8 +386,6 @@ ${place_ct.tslot.room_name_1}`
         else throw "Invalid Term: " + targetTerm;
     }
 
-
-
     /**
      * Format a list of hour, minutes in 24h format.
      * @param times 
@@ -380,25 +396,19 @@ ${place_ct.tslot.room_name_1}`
 
     // convert time from 'mins since start of day' to preferred format
     static format_mins(mins) {
-        //TODO - 12hr am/pm format
         return `${(Math.floor(mins / 60)).toString().padStart(2, '0')}:${(mins % 60).toString().padStart(2, '0')}`;
     }
 
     render() {
-        const baseColWidth = 150;
-        const timeColWidth = 38;
-        const rowHeight = 31;
-
-        // calc_tt_nodes(baseColWidth, timeColWidth, rowHeight, showTerm)
         if (this.props.show_double) {
             return (
                 <div>
-                    <div style={{ float: "left", width: "50%" }}>{this.calc_tt_nodes(baseColWidth / 2, timeColWidth, rowHeight, 'F')}</div>
-                    <div style={{ float: "right", width: "50%" }}>{this.calc_tt_nodes(baseColWidth / 2, timeColWidth, rowHeight, 'S')}</div>
+                    <div style={{ float: "left", width: "50%" }}>{this.calc_tt_nodes('F')}</div>
+                    <div style={{ float: "right", width: "50%" }}>{this.calc_tt_nodes('S')}</div>
                 </div>
             );
         } else {
-            return this.calc_tt_nodes(baseColWidth, timeColWidth, rowHeight, this.props.show_term);
+            return this.calc_tt_nodes(this.props.show_term);
         }
     }
 }

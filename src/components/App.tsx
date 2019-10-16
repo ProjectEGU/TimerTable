@@ -5,10 +5,10 @@ import "./../assets/scss/App.scss";
 import 'antd/dist/antd.css';
 
 import { DLXMatrix } from "./dlxmatrix"
-import { crsdb, Campus } from "./crsdb"
+import { crsdb, Campus, Campus_Formatted } from "./crsdb"
 import { Course, CourseSection, CourseSectionsDict, Timeslot, CourseSelection } from "./course"
 import { SchedDisp } from "./sched_disp";
-import { AutoComplete, Button, Card, Tabs, Icon, Input, Badge, Collapse, Pagination, Popover, Checkbox } from 'antd';
+import { AutoComplete, Button, Card, Tabs, Icon, Input, Badge, Collapse, Pagination, Popover, Checkbox, message } from 'antd';
 import { AutoCompleteProps } from "antd/lib/auto-complete";
 import { AssertionError } from "assert";
 import { crs_arrange, SchedSearchResult } from "./schedule";
@@ -37,18 +37,24 @@ interface CrsState {
 interface AppState {
     data_loaded: boolean;
     data_updated_date: string;
+
+    tt_tab_active: string;
+
     crs_search_str: string;
     crs_search_dropdown_open: boolean;
     cur_campus_set: Set<Campus>;
     cur_session: string;
     cur_search_status: string;
 
-    crs_state: CrsState;
-
     search_crs_list: Course[];
-    search_result: CourseSelection[][];
+    search_result: CourseSelection[][][];
+
     search_result_idx: number;
     search_result_limit: number;
+    /**
+     * Array of selected indices for equivalent sections in the current search result.
+     */
+    search_result_selections: number[];
 }
 
 /**
@@ -64,10 +70,33 @@ interface AppState {
  * - Add display for date when data was updated
  * 
  * Oct 15 : 
- * - Change algorithm to support grouping of 'equivalent' sections together into a single search result.
- * - Allow selection of equivalent sections.
+ * X Package for online distribution on github
+ * X Change algorithm to support grouping of 'equivalent' sections together into a single search result.
+ * X Allow selection of equivalent sections.
+ * X Fixed bug in crsdb.is_timeslot_conflict causing course sections with nonzero times to be incorrectly handled
+ * X Notification when fail to load data
+ * X Switch to winter / fall views if results contain only results in those respective terms, otherwise switch to the 'both' view
+ * X Transition on mouseover of timetable slots
+ * 
+ * Other task :
+ * - Mobile display with menu
  * - Download the courses file as gzip
- * - Package for online distribution on github
+ * - Replace course list with a 'list' component which will allow removal / modification
+ * - Search bar async operation / display
+ * - Allow selection of equivalent sections to persist
+ * - Replace autocomplete with Select component, with loading display and checked items, as well as menu offset
+ * - Optimization of the timetable display (consider changing to div layout to avoid intensive calculations)
+ * - Improve filtering of 'dead' sections, which cannot be enrolled in for any reason.
+ * - Display 'unable to retrieve course data' only once when failing
+ * 
+ * Longer term goals : 
+ * - Automated testing of correctness
+ *  - involves writing independent python backtracking calculation tool, which will operate on the same data set
+ * - Selection of constraints 
+ *  - Only specific sections of a course to consider
+ *  - Remove sections in specific blacklisted timeslots
+ *  - Ranking of solutions based on preference
+ *  - Any other ideas welcome
  */
 class App extends React.Component<AppProps, AppState> {
     dropdownRef: React.RefObject<AutoComplete>;
@@ -77,20 +106,20 @@ class App extends React.Component<AppProps, AppState> {
 
         this.dropdownRef = React.createRef<AutoComplete>();
 
+        this.handleSelectionIndicesChanged = this.handleSelectionIndicesChanged.bind(this);
+
         // Set the state directly. Use props if necessary.
         this.state = {
             data_loaded: false,
             data_updated_date: "(unable to get data loaded date)",
+
+            tt_tab_active: 'F',
+
             crs_search_str: "",
             crs_search_dropdown_open: false,
 
             cur_campus_set: new Set<Campus>([Campus.STG_ARTSCI]),
             cur_session: "20199",
-
-            crs_state: {
-                crs_obj_list: [],
-                crs_sections: []
-            },
 
             cur_search_status: null,
 
@@ -99,12 +128,13 @@ class App extends React.Component<AppProps, AppState> {
             search_result: [],
             search_result_idx: 0,
 
-            search_result_limit: 200
+            search_result_limit: 1000000,
+
+            search_result_selections: []
         }
     }
 
     componentDidMount() {
-
         // Get values of enum: Object.keys(ENUM).map(key=>ENUM[key])
         // https://stackoverflow.com/a/39372911/4051435
         // Promise.all will return a new promise that resolves when the input list of promises have resolved.
@@ -114,6 +144,7 @@ class App extends React.Component<AppProps, AppState> {
             return crsdb.fetch_crs_data(campus, this.state.cur_session)
                 .catch((err) => {
                     console.log(err);
+                    message.error("Unable to retrieve course data. ", 0);
                     // setstate err
                 });
         })).then(() => {
@@ -155,8 +186,7 @@ class App extends React.Component<AppProps, AppState> {
     }
 
     crs_doSearch() {
-        if(this.state.search_crs_list.length == 0)
-        {
+        if (this.state.search_crs_list.length == 0) {
             this.setState({
                 search_result: [],
                 search_result_idx: 0,
@@ -176,40 +206,23 @@ class App extends React.Component<AppProps, AppState> {
         }
         else if (search_result.solutionLimitReached) {
             console.assert(search_result.solutionSet.length == this.state.search_result_limit);
-            search_status=`limit of ${this.state.search_result_limit} schedules reached`
+            search_status = `limit of ${this.state.search_result_limit} schedules reached`;
         } else {
-            search_status=`${search_result.solutionSet.length} schedules found`
+            search_status = `${search_result.solutionSet.length} schedules found`;
+            if (all_sections.every(crs_sel => crs_sel.crs.term == 'F'))
+                this.setState({ tt_tab_active: 'F' });
+            else if (all_sections.every(crs_sel => crs_sel.crs.term == 'S'))
+                this.setState({ tt_tab_active: 'S' });
+            else
+                this.setState({ tt_tab_active: 'Y' });
         }
+
+
         this.setState({
             search_result: search_result.solutionSet,
             search_result_idx: 0,
-            cur_search_status: search_status
-        });
-    }
-
-    crs_addAllSections(crs: Course) {
-        // skip operation if crs is not in current courses list
-        if (this.state.crs_state.crs_obj_list.indexOf(crs) != -1) {
-            return;
-        }
-        this.setState({
-            crs_state:
-            {
-                crs_obj_list: this.state.crs_state.crs_obj_list.concat(crs),
-                crs_sections: this.state.crs_state.crs_sections.concat(...this.crs_listAllSections(crs))
-            }
-        });
-    }
-
-    crs_removeAllSections(crs: Course) {
-        // assert crs is already in current courses list
-        console.assert(this.state.crs_state.crs_obj_list.findIndex(crs_obj => crs_obj.unique_id == crs.unique_id) != -1);
-        this.setState({
-            crs_state:
-            {
-                crs_obj_list: this.state.crs_state.crs_obj_list.filter(crs_obj => crs_obj.unique_id != crs.unique_id),
-                crs_sections: this.state.crs_state.crs_sections.filter(crs_sel => crs_sel.crs.unique_id != crs.unique_id)
-            }
+            cur_search_status: search_status,
+            search_result_selections: new Array<number>(search_result.solutionSet.length).fill(0)
         });
     }
 
@@ -220,6 +233,12 @@ class App extends React.Component<AppProps, AppState> {
         });
 
         return all_results;
+    }
+
+    handleSelectionIndicesChanged(new_indices: number[]) {
+        //console.log(new_indices);
+        //console.log(this.state.search_result[this.state.search_result_idx]);
+        this.setState({ search_result_selections: new_indices });
     }
 
     public render() {
@@ -256,7 +275,7 @@ class App extends React.Component<AppProps, AppState> {
                                 this.crs_addSearchCrs(crs);
                             }}
                         >
-                            {this.state.cur_campus_set.size > 1 ? `[${crs.campus.substring(0, 4).replace('_', '').trim()}] ` : null /*  */}
+                            {this.state.cur_campus_set.size > 1 ? `[${Campus_Formatted[crs.campus]}] ` : null /*  */}
                             {crs_code}: {crs_title} {/*[{Object.keys(crs.course_sections).join(',')}]*/}</div>
                     </AutoComplete.Option>
 
@@ -264,25 +283,13 @@ class App extends React.Component<AppProps, AppState> {
             });
         }
 
-        let crs_disp_items = this.state.crs_state.crs_obj_list.map(crs => {
-            return (
-                <div key={crs.course_code}>
-                    <span style={{ float: "left" }}>{crs.course_code}</span>
-                    <span style={{ float: "right" }}>&nbsp;<Icon type="close" onClick={() => {
-                        this.crs_removeAllSections(crs);
-                    }} /></span>
-                    <br />
-                </div>
-            );
-        });
-
         let crs_search_items = this.state.search_crs_list.map(crs => {
             return (
                 <div key={crs.course_code}>
-                    <span style={{ float: "left" }}>{crs.course_code}</span>
+                    <span style={{ float: "left" }}>{/*`[${Campus_Formatted[crs.campus]}] `*/}{crs.course_code}</span>
                     <span style={{ float: "right" }}>&nbsp;<Icon type="close" onClick={() => {
                         this.crs_removeSearchCrs(crs);
-                        
+
                     }} /></span>
                     <br />
                 </div>
@@ -296,7 +303,7 @@ class App extends React.Component<AppProps, AppState> {
         }
 
         const showSearchResults = this.state.search_result.length > 0;
-        let sectionsList = showSearchResults ? this.state.search_result[this.state.search_result_idx] : this.state.crs_state.crs_sections;
+        let sectionsList = showSearchResults ? this.state.search_result[this.state.search_result_idx] : [];
 
         /**********
          * Uncomment below to test the conflict display system*/
@@ -322,15 +329,24 @@ class App extends React.Component<AppProps, AppState> {
         return (
             <div className="app">
                 <div style={{ float: "left", width: "60%" }}>
-                    <Tabs defaultActiveKey="1" tabPosition="top" >
-                        <Tabs.TabPane tab="Fall" key="1">
-                            <SchedDisp crs_selections={sectionsList} show_term={"F"} />
+                    <Tabs defaultActiveKey="F" tabPosition="top"
+                        onChange={activeKey => this.setState({ tt_tab_active: activeKey })}
+                        activeKey={this.state.tt_tab_active}
+                    >
+                        <Tabs.TabPane tab="Fall" key="F">
+                            <SchedDisp crs_selections_groups={sectionsList} crs_selections_indices={this.state.search_result_selections} show_term={"F"}
+                                onSelectionIndicesChanged={this.handleSelectionIndicesChanged}
+                            />
                         </Tabs.TabPane>
-                        <Tabs.TabPane tab="Winter" key="2">
-                            <SchedDisp crs_selections={sectionsList} show_term={"S"} />
+                        <Tabs.TabPane tab="Winter" key="S">
+                            <SchedDisp crs_selections_groups={sectionsList} crs_selections_indices={this.state.search_result_selections} show_term={"S"}
+                                onSelectionIndicesChanged={this.handleSelectionIndicesChanged}
+                            />
                         </Tabs.TabPane>
-                        <Tabs.TabPane tab="Both" key="3">
-                            <SchedDisp crs_selections={sectionsList} show_term={"Y"} show_double={true} />
+                        <Tabs.TabPane tab="Both" key="Y">
+                            <SchedDisp crs_selections_groups={sectionsList} crs_selections_indices={this.state.search_result_selections} show_term={"Y"} show_double={true}
+                                onSelectionIndicesChanged={this.handleSelectionIndicesChanged}
+                            />
                         </Tabs.TabPane>
                     </Tabs>
 
@@ -338,7 +354,7 @@ class App extends React.Component<AppProps, AppState> {
                 <div className="ctrls" style={{ float: "left", width: "400px" }}>
                     <Collapse
                         bordered={false}
-                        defaultActiveKey={['1', '3']}
+                        defaultActiveKey={['1', '3', '4']}
                     >
                         <Collapse.Panel header="Courses list" key="1" disabled showArrow={true} extra={
                             <SettingsButton
@@ -347,6 +363,10 @@ class App extends React.Component<AppProps, AppState> {
                                 }}
                                 onSettingsModified={(newSettings) => {
                                     this.setState({ cur_campus_set: newSettings.selectedCampus });
+                                    // message.info("Changes saved.");
+                                }}
+                                onSettingsCancelled={() => {
+                                    // message.info("Changes are not saved.");
                                 }}
                             />
                         }>
@@ -367,6 +387,7 @@ class App extends React.Component<AppProps, AppState> {
                                 size="large"
                                 style={{ width: "100%" }}
                                 dropdownStyle={{ width: "auto" }}
+
                                 dataSource={dataSource}
                                 placeholder="Enter first 3 letters of course code"
                                 onChange={(v) => {
@@ -434,7 +455,10 @@ class App extends React.Component<AppProps, AppState> {
                                         onChange={(idx) => {
                                             idx -= 1;
                                             if (idx >= this.state.search_result.length || idx < 0) return;
-                                            else this.setState({ search_result_idx: idx });
+                                            else this.setState({
+                                                search_result_idx: idx,
+                                                search_result_selections: new Array<number>(this.state.search_result[idx].length).fill(0)
+                                            });
                                         }}
                                     />
 

@@ -9,6 +9,11 @@ export enum Campus {
     // UTSC = 'utsc'
 }
 
+export var Campus_Formatted = {
+    'utm': "UTM",
+    'stg_artsci': "StG"
+}
+
 export class crsdb {
     constructor(params) {
 
@@ -30,7 +35,7 @@ export class crsdb {
         }
 
         // Otherwise, continue to fetch data.
-        let crs_data: Course[] = await fetch(`/data/course_data_${campus}_${session}`, { headers: {} }).then(
+        let crs_data: Course[] = await fetch(`data/course_data_${campus}_${session}`, { headers: {} }).then(
             (response) => {
                 if (!response.ok) {
                     throw new Error(response.statusText);
@@ -165,10 +170,10 @@ export class crsdb {
 
         // Each timeslot has the start and end times in [hour, minute] format.
         // Convert them into total minutes format.
-        let start_A = a.start_time[1] * 60 + a.start_time[0];
-        let start_B = b.start_time[1] * 60 + b.start_time[0];
-        let end_A = a.end_time[1] * 60 + a.end_time[0];
-        let end_B = b.end_time[1] * 60 + b.end_time[0];
+        let start_A = a.start_time[0] * 60 + a.start_time[1];
+        let start_B = b.start_time[0] * 60 + b.start_time[1];
+        let end_A = a.end_time[0] * 60 + a.end_time[1];
+        let end_B = b.end_time[0] * 60 + b.end_time[1];
 
         // The first timeslot starts and ends before the second timeslot even starts, so there is no conflict.
         if (start_A <= start_B && end_A <= start_B)
@@ -196,9 +201,9 @@ export class crsdb {
         }
         return false;
     }
-    // CHECK CONFLICT : CSC108 PRA0101 conflict with CSC108LEC0102
-    // CHECK SANITY: CSC108F x CSC108S should yield expected # of results (cross-multiply single results should be result of both results)
-    // CHECK DUPE RESULT: CSC108F result 1 == result 916
+
+
+
     static is_section_open(sec: CourseSection) {
         return !sec.notes.includes("Closed") && !sec.notes.includes("Cancelled") && sec.timeslots.length > 0;
     }

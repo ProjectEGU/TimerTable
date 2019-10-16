@@ -118,7 +118,7 @@ export class DLXMatrix<RowType> {
      * @param m Matrix containing the data (auto converted to boolean using js if statement).
      * @param nPrimaryCols If the matrix has secondary columns, then nPrimaryCols is the number of the primary columns. By default, this is equal to nCols.
      */
-    public static Initialize<RowType>(nRows: number, nCols: number, rowInfo: any[], data: number[][], nPrimaryCols?: number): DLXMatrix<RowType> {
+    public static Initialize<RowType>(nRows: number, nCols: number, rowInfo: RowType[], data: number[][], nPrimaryCols?: number): DLXMatrix<RowType> {
         // Array<T> is used in favor of T[] when the length of the array in question is expected to be changed.
         let nodeList: Array<DLXNode> = [];
 
@@ -169,7 +169,6 @@ export class DLXMatrix<RowType> {
         }
 
         nodeList.push(...colList);
-        // Populate constraint rows. p-prefix indicates position on the puzzle board itself, not the DLX matrix.
         for (let rowId = 0; rowId < nRows; rowId++) {
             let rowNodes: DLXNode[] = [];
             for (let colId = 0; colId < nCols; colId++) {
