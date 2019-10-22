@@ -88,9 +88,10 @@ interface AppState {
  * - Replace course list with a 'list' component which will allow removal / modification
  * - Search bar async operation / display
  * - Allow selection of equivalent sections to persist
- * - Replace autocomplete with Select component, with loading display and checked items, as well as menu offset
- * - Optimization of the timetable display (consider changing to div layout to avoid intensive calculations)
- * - Improve filtering of 'dead' sections, which cannot be enrolled in for any reason.
+ * X Replace autocomplete with Select component, with loading display and checked items, as well as menu offset
+ *      Scrapped the idea and sticking with Select now.
+ * - Optimization of the timetable display (consider changing to div layout to avoid intensive rowspan/colspan calculations)
+ * - Improve filtering of 'dead' sections, which cannot be enrolled in for any reason. Find additional criterion for evaluating deadness of courses
  * - Display 'unable to retrieve course data' only once when failing
  * - Highlight course slots on TT when mouse over the respective items in list
  * 
@@ -383,7 +384,7 @@ class App extends React.Component<AppProps, AppState> {
                                 size="large"
                                 style={{ width: "100%" }}
                                 dropdownStyle={{ width: "auto" }}
-
+                                disabled={this.state.data_load_error}
                                 dataSource={dataSource}
                                 placeholder="Enter first 3 letters of course code"
                                 onChange={(v) => {
@@ -406,16 +407,20 @@ class App extends React.Component<AppProps, AppState> {
                                         this.setState({ crs_search_dropdown_open: this.state.crs_search_str.length >= 3 });
                                     }}
                                     suffix={
-                                        <Button
-                                            style={{ marginRight: -12, opacity: 1 }}
-                                            size="large"
-                                            type={crs_dropdown_open ? "primary" : "default"}
-                                            onClick={() => {
-                                                this.setState({ crs_search_dropdown_open: this.state.crs_search_str.length >= 3 && !crs_dropdown_open });
-                                            }}
-                                        >
-                                            <Icon type={crs_dropdown_open ? "up" : "down"} />
-                                        </Button>}
+                                        <div>
+                                            {!this.state.data_loaded && this.state.crs_search_str.length > 2 ? <Icon type="loading" style={{ paddingRight: 12 }} /> : null}
+                                            <Button
+                                                style={{ marginRight: -12, opacity: 1 }}
+                                                size="large"
+                                                type={crs_dropdown_open ? "primary" : "default"}
+                                                onClick={() => {
+                                                    this.setState({ crs_search_dropdown_open: this.state.crs_search_str.length >= 3 && !crs_dropdown_open });
+                                                }}
+                                            >
+                                                <Icon type={crs_dropdown_open ? "up" : "down"} />
+                                            </Button>
+                                        </div>
+                                    }
 
                                 />
                             </AutoComplete>
@@ -446,7 +451,7 @@ class App extends React.Component<AppProps, AppState> {
                                         current={this.state.search_result.length == 0 ? 0 : this.state.search_result_idx + 1}
                                         disabled={this.state.search_result.length == 0}
                                         simple
-                                        
+
                                         defaultCurrent={0}
                                         total={this.state.search_result.length}
                                         pageSize={1}
