@@ -1,6 +1,6 @@
 table {
     height: 88vh;
-    min-height: 780px;
+    min-height: 550px;
     border-collapse: collapse;
     padding: 0px;
     width: 100%;
@@ -9,7 +9,7 @@ table {
 
     th,
     td {
-        font-size: 13.25px;
+        font-size: 12px;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
         vertical-align: top;
         cursor: default;
@@ -26,7 +26,7 @@ table {
             position: absolute;
             right: -1px;
             left: -0.5px;
-            bottom: -1px;
+            bottom: -0.5px;
             top: -1px;
             overflow: hidden;
             text-overflow: clip;
@@ -55,8 +55,6 @@ table th {
     transition-duration: 0.2s;
     transition-timing-function: cubic-bezier(0.645, 0.045, 0.355, 1);
     transition-delay: 0s;
-
-
 }
 
 .sched-crscell-conflict {
@@ -91,28 +89,4 @@ table th {
 
 .sched-rbd-cell {
     border-right: 1px solid rgb(203, 203, 204);
-}
-
-.unselectable {
-    -moz-user-select: none;
-    -webkit-user-select: none;
-    -ms-user-select: none;
-    user-select: none;
-}
-
-.ant-tabs-nav {
-    float: right;
-    -moz-user-select: none;
-    -webkit-user-select: none;
-    -ms-user-select: none;
-    user-select: none;
-}
-
-.ant-select-dropdown-menu {
-    // max-height: 500px;
-
-}
-
-.ant-select-dropdown {
-    width: auto !important;
 }

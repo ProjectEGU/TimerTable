@@ -38,6 +38,9 @@ interface AppState {
     data_loaded: boolean;
     data_updated_date: string;
 
+    data_load_error: boolean;
+    data_load_error_reason: any;
+
     tt_tab_active: string;
 
     crs_search_str: string;
@@ -89,8 +92,10 @@ interface AppState {
  * - Optimization of the timetable display (consider changing to div layout to avoid intensive calculations)
  * - Improve filtering of 'dead' sections, which cannot be enrolled in for any reason.
  * - Display 'unable to retrieve course data' only once when failing
+ * - Highlight course slots on TT when mouse over the respective items in list
  * 
- * - configurable color schemes for different courses on the TT
+ * - different colors for different courses on the TT
+ * - on mobile display, add menu button to scroll to bottom / top when appropriate. also auto scroll to bottom on successful results
  * 
  * Longer term goals : 
  * - Automated testing of correctness
@@ -116,6 +121,9 @@ class App extends React.Component<AppProps, AppState> {
         this.state = {
             data_loaded: false,
             data_updated_date: "(unable to get data loaded date)",
+
+            data_load_error: false,
+            data_load_error_reason: null,
 
             tt_tab_active: 'F',
 
@@ -145,19 +153,24 @@ class App extends React.Component<AppProps, AppState> {
         // It will resolve with an array of results for each promise in the input list.
         // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise/all
         Promise.all(Object.keys(Campus).map(key => Campus[key]).map(campus => {
-            return crsdb.fetch_crs_data(campus, this.state.cur_session)
-                .catch((err) => {
-                    console.log(err);
-                    message.error("Unable to retrieve course data. ", 0);
-                    // setstate err
-                });
+            return crsdb.fetch_crs_data(campus, this.state.cur_session);
         })).then(() => {
             console.log(crsdb.data_updated_date);
             this.setState({
                 data_loaded: true,
                 data_updated_date: crsdb.data_updated_date == null ? "(unable to get updated date)" : crsdb.data_updated_date.toDateString().substring(4)
             });
-        }).catch(err => console.log(err));
+        }).catch(err => {
+            console.log(err)
+
+            if (!this.state.data_load_error) {
+                message.error("Unable to retrieve course data. ", 0);
+                this.setState({
+                    data_load_error: true,
+                    data_load_error_reason: err
+                });
+            }
+        });
     }
 
     crs_listAllSections(crs: Course): CourseSelection[] {
@@ -334,33 +347,10 @@ class App extends React.Component<AppProps, AppState> {
         let crs_dropdown_open = this.state.crs_search_dropdown_open && dataSource.length > 0;
         return (
             <div className="app">
-                <div style={{ float: "left", width: "60%" }}>
-                    <Tabs defaultActiveKey="F" tabPosition="top"
-                        onChange={activeKey => this.setState({ tt_tab_active: activeKey })}
-                        activeKey={this.state.tt_tab_active}
-                    >
-                        <Tabs.TabPane tab="Fall" key="F">
-                            <SchedDisp crs_selections_groups={sectionsList} crs_selections_indices={this.state.search_result_selections} show_term={"F"}
-                                onSelectionIndicesChanged={this.handleSelectionIndicesChanged}
-                            />
-                        </Tabs.TabPane>
-                        <Tabs.TabPane tab="Winter" key="S">
-                            <SchedDisp crs_selections_groups={sectionsList} crs_selections_indices={this.state.search_result_selections} show_term={"S"}
-                                onSelectionIndicesChanged={this.handleSelectionIndicesChanged}
-                            />
-                        </Tabs.TabPane>
-                        <Tabs.TabPane tab="Both" key="Y">
-                            <SchedDisp crs_selections_groups={sectionsList} crs_selections_indices={this.state.search_result_selections} show_term={"Y"} show_double={true}
-                                onSelectionIndicesChanged={this.handleSelectionIndicesChanged}
-                            />
-                        </Tabs.TabPane>
-                    </Tabs>
-
-                </div>
-                <div className="ctrls" style={{ float: "left", width: "400px" }}>
+                <div className="ctrls">
                     <Collapse
                         bordered={false}
-                        defaultActiveKey={['1', '3', '4']}
+                        activeKey={['1', '3', '4']}
                     >
                         <Collapse.Panel header="Courses list" key="1" disabled showArrow={true} extra={
                             <SettingsButton
@@ -440,7 +430,9 @@ class App extends React.Component<AppProps, AppState> {
     style={{ userSelect: "none", backgroundColor: '#fff', color: '#999', boxShadow: '0 0 0 1px #d9d9d9 inset' }}
 />}*/}
                             <div>
-                                Press the button below to search for schedules
+                                <div>
+                                    Press the button below to search for schedules
+                                </div>
                                 <Button icon="search" onClick={this.crs_doSearch.bind(this)}
                                     style={{}}
                                 >
@@ -454,6 +446,7 @@ class App extends React.Component<AppProps, AppState> {
                                         current={this.state.search_result.length == 0 ? 0 : this.state.search_result_idx + 1}
                                         disabled={this.state.search_result.length == 0}
                                         simple
+                                        
                                         defaultCurrent={0}
                                         total={this.state.search_result.length}
                                         pageSize={1}
@@ -479,6 +472,30 @@ class App extends React.Component<AppProps, AppState> {
                         </Collapse.Panel>
                     </Collapse>
                 </div>
+                <div className="tt-tabs">
+                    <Tabs defaultActiveKey="F" tabPosition="top"
+                        onChange={activeKey => this.setState({ tt_tab_active: activeKey })}
+                        activeKey={this.state.tt_tab_active}
+                    >
+                        <Tabs.TabPane tab="Fall" key="F">
+                            <SchedDisp crs_selections_groups={sectionsList} crs_selections_indices={this.state.search_result_selections} show_term={"F"}
+                                onSelectionIndicesChanged={this.handleSelectionIndicesChanged}
+                            />
+                        </Tabs.TabPane>
+                        <Tabs.TabPane tab="Winter" key="S">
+                            <SchedDisp crs_selections_groups={sectionsList} crs_selections_indices={this.state.search_result_selections} show_term={"S"}
+                                onSelectionIndicesChanged={this.handleSelectionIndicesChanged}
+                            />
+                        </Tabs.TabPane>
+                        <Tabs.TabPane tab="Both" key="Y">
+                            <SchedDisp crs_selections_groups={sectionsList} crs_selections_indices={this.state.search_result_selections} show_term={"Y"} show_double={true}
+                                onSelectionIndicesChanged={this.handleSelectionIndicesChanged}
+                            />
+                        </Tabs.TabPane>
+                    </Tabs>
+
+                </div>
+
             </div >
         );
     }

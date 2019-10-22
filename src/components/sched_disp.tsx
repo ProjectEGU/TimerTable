@@ -117,6 +117,7 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
 
         this.props.crs_selections_groups.forEach((crs_grp, crs_grp_idx) => {
             let crs_sel_idx = this.props.crs_selections_indices == undefined ? 0 : this.props.crs_selections_indices[crs_grp_idx];
+
             let crs_sel: CourseSelection = crs_grp[crs_sel_idx];
 
             if (crs_sel.crs.term != 'Y' && crs_sel.crs.term != targetTerm)
@@ -319,9 +320,9 @@ ${place_ct.tslot.room_name_1}`
                                 >
                                     {place_ct.crs_sel.crs.course_code.substr(0, 6)} {place_ct.crs_sel.sec.section_id}
                                     <br />
-                                    {SchedDisp.format_timelist(place_ct.tslot.start_time)}-{SchedDisp.format_timelist(place_ct.tslot.end_time)}
+                                    {place_ct.crs_sel.crs.term == 'F' ? place_ct.tslot.room_name_1 : place_ct.tslot.room_name_2}
                                     <br />
-                                    {place_ct.tslot.room_name_1}
+                                    {SchedDisp.format_timelist(place_ct.tslot.start_time)}-{SchedDisp.format_timelist(place_ct.tslot.end_time)}
                                     {
                                         place_ct.equiv_alternate_sections.length == 0 ? null :
                                             <AlternateSectionButton
