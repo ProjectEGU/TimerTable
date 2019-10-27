@@ -81,12 +81,18 @@ interface AppState {
  * X Switch to winter / fall views if results contain only results in those respective terms, otherwise switch to the 'both' view
  * X Transition on mouseover of timetable slots
  * 
+ * Algorithm task:
+ * - Pre-compute the mutually exclusive courses prior to the calculation, and display the ones that are in a cycle
+ * - Allow separately stepping through fall / winter semesters if there are no yearly courses
+ * - Display conflict resolution methods
+ * 
+ * 
  * Other task :
  * - Make new CSS class for disabling selections, and apply it to parts where appropriate.
  * - Mobile display with menu
  * - Download the courses file as gzip
  * - Replace course list with a 'list' component which will allow removal / modification
- * - Search bar async operation / display
+ * X Search bar async operation / display
  * - Allow selection of equivalent sections to persist
  * X Replace autocomplete with Select component, with loading display and checked items, as well as menu offset
  *      Scrapped the idea and sticking with Select now.
@@ -94,9 +100,10 @@ interface AppState {
  * - Improve filtering of 'dead' sections, which cannot be enrolled in for any reason. Find additional criterion for evaluating deadness of courses
  * - Display 'unable to retrieve course data' only once when failing
  * - Highlight course slots on TT when mouse over the respective items in list
- * 
- * - different colors for different courses on the TT
+ * - Search bar redo: able to add as optional or required course directly from dropdown menu item * - different colors for different courses on the TT
  * - on mobile display, add menu button to scroll to bottom / top when appropriate. also auto scroll to bottom on successful results
+ * - on mobile display, add menu icon to collapse or expand that control menu
+ * - show a list of selected sections
  * 
  * Longer term goals : 
  * - Automated testing of correctness
@@ -325,29 +332,58 @@ class App extends React.Component<AppProps, AppState> {
         const showSearchResults = this.state.search_result.length > 0;
         let sectionsList = showSearchResults ? this.state.search_result[this.state.search_result_idx] : [];
 
-        /**********
-         * Uncomment below to test the conflict display system*/
-        /*if (this.state.data_loaded) {
-            let ccc = [];
-            //test 2 courses
-            ccc.push(...crsdb.get_crs_selections(crsdb.get_crs_by_code("utm", "20199", "CSC367H5F"), "LEC0101", "PRA0101"));
-            ccc.push(...crsdb.get_crs_selections(crsdb.get_crs_by_code("utm", "20199", "CSC411H5F"), "LEC0101", "TUT0102"));
-            //test conflicting courses
-            ccc.push(...crsdb.get_crs_selections(crsdb.get_crs_by_code("utm", "20199", "CSC236H5F"), "LEC0103", "TUT0101"));
-            ccc.push(...crsdb.get_crs_selections(crsdb.get_crs_by_code("utm", "20199", "CSC290H5F"), "TUT0102", "LEC0101"));
-            ccc.push(...crsdb.get_crs_selections(crsdb.get_crs_by_code("utm", "20199", "CSC324H5F"), "LEC0101", "PRA0101"));
-            ccc.push(...crsdb.get_crs_selections(crsdb.get_crs_by_code("utm", "20199", "CSC347H5F"), "PRA0103", "LEC0101"));
-            ccc.push(...crsdb.get_crs_selections(crsdb.get_crs_by_code("utm", "20199", "CSC411H5F"), "LEC0102", "TUT0101"));
-            ccc.push(...crsdb.get_crs_selections(crsdb.get_crs_by_code("utm", "20199", "CSC477H5F"), "PRA0101", "LEC0101"));
-            ccc.push(...crsdb.get_crs_selections(crsdb.get_crs_by_code("utm", "20199", "CHI311H5F"), "LEC0101"));
-            ccc.push(...crsdb.get_crs_selections(crsdb.get_crs_by_code("utm", "20199", "MAT102H5F"), "TUT0126", "LEC0101"));
-            sectionsList = ccc;
-        }*/
-
-
         let crs_dropdown_open = this.state.crs_search_dropdown_open && dataSource.length > 0;
         return (
             <div className="app">
+                <div className="sel-crs">
+                    <label>Add a course:</label>
+                    <AutoComplete
+                        ref={this.dropdownRef}
+                        open={crs_dropdown_open}
+                        size="large"
+                        style={{ width: "100%" }}
+                        dropdownStyle={{ width: "auto" }}
+                        disabled={this.state.data_load_error}
+                        dataSource={dataSource}
+                        placeholder="Enter first 3 letters of course code"
+                        onChange={(v) => {
+                            this.setState({
+                                crs_search_str: v.toString(),
+                                crs_search_dropdown_open: v.toString().length >= 3
+                            });
+                        }}
+                        onBlur={() => {
+                            this.setState({
+                                crs_search_dropdown_open: false,
+                            });
+                        }}
+
+                        onSelect={(a, b) => false}
+                        optionLabelProp="value"
+                    >
+                        <Input
+                            onFocus={() => {
+                                this.setState({ crs_search_dropdown_open: this.state.crs_search_str.length >= 3 });
+                            }}
+                            suffix={
+                                <div>
+                                    {!this.state.data_loaded && this.state.crs_search_str.length > 2 ? <Icon type="loading" style={{ paddingRight: 12 }} /> : null}
+                                    <Button
+                                        style={{ marginRight: -12, opacity: 1 }}
+                                        size="large"
+                                        type={crs_dropdown_open ? "primary" : "default"}
+                                        onClick={() => {
+                                            this.setState({ crs_search_dropdown_open: this.state.crs_search_str.length >= 3 && !crs_dropdown_open });
+                                        }}
+                                    >
+                                        <Icon type={crs_dropdown_open ? "up" : "down"} />
+                                    </Button>
+                                </div>
+                            }
+
+                        />
+                    </AutoComplete>
+                </div>
                 <div className="ctrls">
                     <Collapse
                         bordered={false}
@@ -377,53 +413,6 @@ class App extends React.Component<AppProps, AppState> {
                                 <p>Your list of courses will appear below.</p>
                                 {crs_search_items}
                             </Card>
-                            <label>Add a course:</label>
-                            <AutoComplete
-                                ref={this.dropdownRef}
-                                open={crs_dropdown_open}
-                                size="large"
-                                style={{ width: "100%" }}
-                                dropdownStyle={{ width: "auto" }}
-                                disabled={this.state.data_load_error}
-                                dataSource={dataSource}
-                                placeholder="Enter first 3 letters of course code"
-                                onChange={(v) => {
-                                    this.setState({
-                                        crs_search_str: v.toString(),
-                                        crs_search_dropdown_open: v.toString().length >= 3
-                                    });
-                                }}
-                                onBlur={() => {
-                                    this.setState({
-                                        crs_search_dropdown_open: false,
-                                    });
-                                }}
-
-                                onSelect={(a, b) => false}
-                                optionLabelProp="value"
-                            >
-                                <Input
-                                    onFocus={() => {
-                                        this.setState({ crs_search_dropdown_open: this.state.crs_search_str.length >= 3 });
-                                    }}
-                                    suffix={
-                                        <div>
-                                            {!this.state.data_loaded && this.state.crs_search_str.length > 2 ? <Icon type="loading" style={{ paddingRight: 12 }} /> : null}
-                                            <Button
-                                                style={{ marginRight: -12, opacity: 1 }}
-                                                size="large"
-                                                type={crs_dropdown_open ? "primary" : "default"}
-                                                onClick={() => {
-                                                    this.setState({ crs_search_dropdown_open: this.state.crs_search_str.length >= 3 && !crs_dropdown_open });
-                                                }}
-                                            >
-                                                <Icon type={crs_dropdown_open ? "up" : "down"} />
-                                            </Button>
-                                        </div>
-                                    }
-
-                                />
-                            </AutoComplete>
 
                         </Collapse.Panel>
                         {/*<Collapse.Panel header="Constraints" key="2" showArrow={true}>
@@ -510,52 +499,3 @@ class App extends React.Component<AppProps, AppState> {
 declare let module: object;
 
 export default hot(module)(App);
-
-/*
-//let ccc = [];
-//test 2 courses
-ccc.push(...crsdb.get_crs_selections(crsdb.get_crs_by_code("utm", "20199", "CSC367H5F"), "LEC0101", "PRA0101"));
-ccc.push(...crsdb.get_crs_selections(crsdb.get_crs_by_code("utm", "20199", "CSC411H5F"), "LEC0101", "TUT0102"));*/
-/*//test conflicting courses
-ccc.push(...crsdb.get_crs_selections(crsdb.get_crs_by_code("utm", "20199", "CSC236H5F"), "LEC0103", "TUT0101"));
-ccc.push(...crsdb.get_crs_selections(crsdb.get_crs_by_code("utm", "20199", "CSC290H5F"), "TUT0102", "LEC0101"));
-ccc.push(...crsdb.get_crs_selections(crsdb.get_crs_by_code("utm", "20199", "CSC324H5F"), "LEC0101", "PRA0101"));
-ccc.push(...crsdb.get_crs_selections(crsdb.get_crs_by_code("utm", "20199", "CSC347H5F"), "PRA0103", "LEC0101"));
-ccc.push(...crsdb.get_crs_selections(crsdb.get_crs_by_code("utm", "20199", "CSC411H5F"), "LEC0102", "TUT0101"));
-ccc.push(...crsdb.get_crs_selections(crsdb.get_crs_by_code("utm", "20199", "CSC477H5F"), "PRA0101", "LEC0101"));
-ccc.push(...crsdb.get_crs_selections(crsdb.get_crs_by_code("utm", "20199", "CHI311H5F"), "LEC0101"));
-ccc.push(...crsdb.get_crs_selections(crsdb.get_crs_by_code("utm", "20199", "MAT102H5F"), "TUT0126", "LEC0101"));*/
-            //ccc.push(...crsdb.get_crs_selections(crsdb.get_crs_by_code("utm", "20199", "CSC347H5F"), "PRA0103", "LEC0101"));
-            //ccc.push(...crsdb.get_crs_selections(crsdb.get_crs_by_code("utm", "20199", "CSC411H5F"), "LEC0102", "TUT0101"));
-
-
-/*
-
-
-                    <Card size="small" title="Small size card" extra={<a href="#">More</a>} style={{ width: "100%", float: "left" }}>
-                        <p>Card content</p>
-                        <p>Card content</p>
-                        <p>Card content</p>
-                        <Badge
-                            count={4}
-                            style={{ userSelect:"none", backgroundColor: '#fff', color: '#999', boxShadow: '0 0 0 1px #d9d9d9 inset' }}
-                        />
-                    </Card>
-
-*/
-
-/*
-<AutoComplete.Option key={`${crs_code}`} value={`${crs_code}`}>
-            {crs_code}
-        </AutoComplete.Option>
-                <AutoComplete.OptGroup key={crs_code} label={<a><div style={{
-                    overflow: "hidden",
-                    textOverflow: "clip",
-                    whiteSpace: "nowrap",
-                    width: "100%",
-                    height: "100%",
-                    display: "flex",
-                    alignItems: "center"
-                }}>{crs_code}: {crs_title}</div></a>}>
-                </AutoComplete.OptGroup>
-*/

@@ -113,6 +113,7 @@ export class crs_arrange {
         });
 
         console.log(JSON.parse(JSON.stringify((section_groups))));
+        
         // Grouped sections based on if they are equivalent
         // [[SecA], [SecB, SecC]]
         let grouped_equiv_sections: CourseSelection[][] = [];
@@ -198,7 +199,7 @@ export class crs_arrange {
         let mat: DLXMatrix<CourseSelection[]>
             = DLXMatrix.Initialize<CourseSelection[]>(n_rows, n_cols, grouped_equiv_sections, data, n_primary_cols);
 
-        mat.SetSolutionLimit(0);
+        mat.SetSolutionLimit(solution_limit);
         mat.Solve();
 
         // Interpret the results
