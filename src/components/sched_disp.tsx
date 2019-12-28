@@ -19,7 +19,7 @@ interface SchedDispProps {
     labelsPerLine?: number,
     show_double?: boolean,
 
-    onSelectionIndicesChanged?:(new_indices: number[]) => void
+    onSelectionIndicesChanged?: (new_indices: number[]) => void
 }
 
 interface SchedDispState {
@@ -82,8 +82,8 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
         return true;
     }
 
-    sectionChangedHandler(grp_idx, new_selected_section){
-        if(this.props.onSelectionIndicesChanged != undefined){
+    sectionChangedHandler(grp_idx, new_selected_section) {
+        if (this.props.onSelectionIndicesChanged != undefined) {
             let new_indices = this.props.crs_selections_indices.slice();
             new_indices[grp_idx] = this.props.crs_selections_groups[grp_idx].indexOf(new_selected_section);
 
@@ -206,13 +206,13 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
                 />
             )
         }</colgroup>
-        let innerHead = wkday_str.map((x, i) => 
+        let innerHead = wkday_str.map((x, i) =>
             <th
                 key={`h-${x}`}
                 colSpan={i == 0 ? 1 : remainingRowspan[i - 1].length}
             >{x}
             </th>
-        ); 
+        );
 
         let innerRows = [];
 
@@ -328,7 +328,7 @@ ${place_ct.tslot.room_name_1}`
                                             <AlternateSectionButton
                                                 alternateSections={place_ct.equiv_alternate_sections}
                                                 curTimeslot={place_ct.tslot}
-                                                onSectionSelected={(new_sel_idx, new_sel_section)=>this.sectionChangedHandler(place_ct.crs_grp_idx, new_sel_section)}
+                                                onSectionSelected={(new_sel_idx, new_sel_section) => this.sectionChangedHandler(place_ct.crs_grp_idx, new_sel_section)}
                                             />
                                     }
                                 </div>
@@ -397,7 +397,16 @@ ${place_ct.tslot.room_name_1}`
 
     // convert time from 'mins since start of day' to preferred format
     static format_mins(mins) {
-        return `${(Math.floor(mins / 60)).toString().padStart(2, '0')}:${(mins % 60).toString().padStart(2, '0')}`;
+        // return `${(Math.floor(mins / 60)).toString().padStart(2, '0')}:${(mins % 60).toString().padStart(2, '0')}`;
+        let h = Math.floor(mins / 60);
+        let m = mins % 60;
+        console.assert(0 <= h && h <= 24);
+        console.assert(0 <= m && m < 60);
+        let pm = h >= 12;
+        if (h == 0) h = 12;
+        if (h > 12) h -= 12;
+
+        return `${(h.toString().padStart(2, '0'))}:${m.toString().padStart(2, '0')} ${pm ? "PM" : "AM"}`;
     }
 
     render() {

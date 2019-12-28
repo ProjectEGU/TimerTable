@@ -40,12 +40,6 @@ export class crs_arrange {
             let tslotsA = secA.sec.timeslots.map(tslot => `${tslot.weekday} ${tslot.start_time.join(":")} ${tslot.end_time.join(":")}`).sort().join("");
             let tslotsB = secB.sec.timeslots.map(tslot => `${tslot.weekday} ${tslot.start_time.join(":")} ${tslot.end_time.join(":")}`).sort().join("");
 
-            /*if (tslotsA == tslotsB) {
-                console.log("Equivalent sections:");
-                console.log(secA);
-                console.log(secB);
-            }*/
-
             return tslotsA == tslotsB;
         } else {
             return false;
@@ -55,9 +49,6 @@ export class crs_arrange {
     // TODO: implement course exclusion (ie need to take CHM135, it's offered in both semesters, but only need to pick one semester.)
 
     public static find_sched(crs_list: CourseSelection[], solution_limit: number): SchedSearchResult {
-        // TODO: For each section for the same course with the same timeslots and type, we group them together.
-        //          In the result, we can select alternate section with the exact same timeslot with dropdown option
-
         // For courses that have no timeslots or are closed, we skip feeding them into the algorithm.
         crs_list = crs_list.filter(crs_sel => crsdb.is_section_open(crs_sel.sec) && crs_sel.sec.timeslots.length > 0);
 
@@ -140,7 +131,33 @@ export class crs_arrange {
             }
             grouped_equiv_sections.push(...cur_equiv_grps);
         });
+        
+        /* // Calculate the exclusion matrix
+        for (let idx1 = 0; idx1 < grouped_equiv_sections.length; idx1++) {
+            for (let idx2 = idx1 + 1; idx2 < grouped_equiv_sections.length; idx2++) {
+                // pick the first section from each group of equivalence
+                let crsSelA = grouped_equiv_sections[idx1][0];
+                let crsSelB = grouped_equiv_sections[idx2][0];
 
+                // If two courses are in different sections, then don't check conflicts.
+                // Assume that yearly courses will happen at the same times on both fall and winter semesters.
+                if (crsSelA.crs.term != 'Y' && crsSelB.crs.term != 'Y') {
+                    if (crsSelA.crs.term != crsSelB.crs.term) {
+                        continue;
+                    }
+                }
+
+                let ts1: Timeslot[] = crsSelA.sec.timeslots;
+                let ts2: Timeslot[] = crsSelB.sec.timeslots;
+
+                if (crsdb.is_timeslots_conflict(ts1, ts2)) {
+                    data[idx1][n_primary_cols + n_exclusions] = 1;
+                    data[idx2][n_primary_cols + n_exclusions] = 1;
+                    n_exclusions += 1;
+                }
+            }
+        }
+        */
         console.log(section_groups);
 
         console.log(grouped_equiv_sections);

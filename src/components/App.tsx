@@ -61,6 +61,15 @@ interface AppState {
 }
 
 /**
+ * Dec 27 todo:
+ * [ ] Better displaying of currently selected campus(es)
+ * [ ] Show / highlight conflicting courses and show options for removing them
+ * [ ] Select unoccupied timeslots and find courses to occupy them.
+ * [ ] "Block sections" by excluding them.
+ * [ ] Apply filters to results (on the right)
+ * [ ] Show clear difference between StG and UTM courses.
+ * [ ] UI Polishment
+ * 
  * Oct 14 :
  * - Change timetable display to use position:absolute with nested div
  * - Add course selection button and made it its own component
@@ -335,59 +344,11 @@ class App extends React.Component<AppProps, AppState> {
         let crs_dropdown_open = this.state.crs_search_dropdown_open && dataSource.length > 0;
         return (
             <div className="app">
-                <div className="sel-crs">
-                    <label>Add a course:</label>
-                    <AutoComplete
-                        ref={this.dropdownRef}
-                        open={crs_dropdown_open}
-                        size="large"
-                        style={{ width: "100%" }}
-                        dropdownStyle={{ width: "auto" }}
-                        disabled={this.state.data_load_error}
-                        dataSource={dataSource}
-                        placeholder="Enter first 3 letters of course code"
-                        onChange={(v) => {
-                            this.setState({
-                                crs_search_str: v.toString(),
-                                crs_search_dropdown_open: v.toString().length >= 3
-                            });
-                        }}
-                        onBlur={() => {
-                            this.setState({
-                                crs_search_dropdown_open: false,
-                            });
-                        }}
-
-                        onSelect={(a, b) => false}
-                        optionLabelProp="value"
-                    >
-                        <Input
-                            onFocus={() => {
-                                this.setState({ crs_search_dropdown_open: this.state.crs_search_str.length >= 3 });
-                            }}
-                            suffix={
-                                <div>
-                                    {!this.state.data_loaded && this.state.crs_search_str.length > 2 ? <Icon type="loading" style={{ paddingRight: 12 }} /> : null}
-                                    <Button
-                                        style={{ marginRight: -12, opacity: 1 }}
-                                        size="large"
-                                        type={crs_dropdown_open ? "primary" : "default"}
-                                        onClick={() => {
-                                            this.setState({ crs_search_dropdown_open: this.state.crs_search_str.length >= 3 && !crs_dropdown_open });
-                                        }}
-                                    >
-                                        <Icon type={crs_dropdown_open ? "up" : "down"} />
-                                    </Button>
-                                </div>
-                            }
-
-                        />
-                    </AutoComplete>
-                </div>
                 <div className="ctrls">
                     <Collapse
                         bordered={false}
                         activeKey={['1', '3', '4']}
+                        style={{ backgroundColor: "darkgray" }}
                     >
                         <Collapse.Panel header="Courses list" key="1" disabled showArrow={true} extra={
                             <SettingsButton
@@ -413,6 +374,50 @@ class App extends React.Component<AppProps, AppState> {
                                 <p>Your list of courses will appear below.</p>
                                 {crs_search_items}
                             </Card>
+                            <div className="sel-crs">
+                                <label>Add a course:</label>
+                                <AutoComplete
+                                    ref={this.dropdownRef} open={crs_dropdown_open} size="large" style={{ width: "100%" }} dropdownStyle={{ width: "auto" }}
+                                    disabled={this.state.data_load_error}
+                                    dataSource={dataSource}
+                                    placeholder="Enter first 3 letters of course code"
+                                    onChange={(v) => {
+                                        this.setState({
+                                            crs_search_str: v.toString(),
+                                            crs_search_dropdown_open: v.toString().length >= 3
+                                        });
+                                    }}
+                                    onBlur={() => {
+                                        this.setState({
+                                            crs_search_dropdown_open: false,
+                                        });
+                                    }}
+                                    onSelect={(a, b) => false}
+                                    optionLabelProp="value"
+                                >
+                                    <Input
+                                        onFocus={() => {
+                                            this.setState({ crs_search_dropdown_open: this.state.crs_search_str.length >= 3 });
+                                        }}
+                                        suffix={
+                                            <div>
+                                                {!this.state.data_loaded && this.state.crs_search_str.length > 2 ? <Icon type="loading" style={{ paddingRight: 12 }} /> : null}
+                                                <Button
+                                                    style={{ marginRight: -12, opacity: 1 }}
+                                                    size="large"
+                                                    type={crs_dropdown_open ? "primary" : "default"}
+                                                    onClick={() => {
+                                                        this.setState({ crs_search_dropdown_open: this.state.crs_search_str.length >= 3 && !crs_dropdown_open });
+                                                    }}
+                                                >
+                                                    <Icon type={crs_dropdown_open ? "up" : "down"} />
+                                                </Button>
+                                            </div>
+                                        }
+
+                                    />
+                                </AutoComplete>
+                            </div>
 
                         </Collapse.Panel>
                         {/*<Collapse.Panel header="Constraints" key="2" showArrow={true}>

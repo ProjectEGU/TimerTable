@@ -162,7 +162,8 @@ class Schedule:
 
         Return the tuple of (is_conflict, report_string)
         """
-        csd = courseOther.course_sections_dict
+        
+        csd = courseOther.course_sections
 
         #assert("LEC" in csd)
         #assert(len(csd["LEC"]) > 0)

@@ -149,7 +149,7 @@ export class crsdb {
     }
 
     // TODO: search crs functionality. - possibly for multiple courses
-    static get_crs(campus, session, pred: (Course) => boolean): Course {
+    static get_crs(campus, session, pred: (arg0: Course) => boolean): Course {
         if (!(campus in crsdb.crs_store)) {
             throw `Campus not loaded in data store: ${campus}`;
         }
@@ -191,7 +191,6 @@ export class crsdb {
      * Check if two selected lists of timeslots conflict with each other
      */
     static is_timeslots_conflict(a: Timeslot[], b: Timeslot[]): boolean {
-        //TODO: is there a more optimal way to check two series of timeslots for conflict ?
         for (let idx1 = 0; idx1 < a.length; idx1++) {
             for (let idx2 = 0; idx2 < b.length; idx2++) {
                 if (crsdb.is_timeslot_conflict(a[idx1], b[idx2])) {
