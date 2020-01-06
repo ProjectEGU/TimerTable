@@ -313,7 +313,8 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
                                     title={
                                         `${place_ct.crs_sel.crs.course_code.substr(0, 6)} ${place_ct.crs_sel.sec.section_id}
 ${SchedDisp.format_timelist(place_ct.tslot.start_time)}-${SchedDisp.format_timelist(place_ct.tslot.end_time)}
-${place_ct.tslot.room_name_1}`
+${place_ct.tslot.room_name_1}
+${place_ct.crs_sel.sec.instructors}`
                                     }
                                     className={(place_ct.n_exclusions == 0 ? `sched-crscell` : `sched-crscell-conflict`) + (place_ct.selected ? ` sched-crscell-hover` : ``)}
 
@@ -323,6 +324,8 @@ ${place_ct.tslot.room_name_1}`
                                     {place_ct.crs_sel.crs.term == 'F' ? place_ct.tslot.room_name_1 : place_ct.tslot.room_name_2}
                                     <br />
                                     {SchedDisp.format_timelist(place_ct.tslot.start_time)}-{SchedDisp.format_timelist(place_ct.tslot.end_time)}
+                                    <br />
+                                    {place_ct.crs_sel.sec.instructors}
                                     {
                                         place_ct.equiv_alternate_sections.length == 0 ? null :
                                             <AlternateSectionButton

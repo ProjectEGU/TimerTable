@@ -60,13 +60,15 @@ export class AlternateSectionButton extends React.Component<ASBProps, ASBState> 
         let btnStyle = (this.state.btnHover || this.state.menuOpen) ? "sched-sel-alt-crs-btn-hover" : "sched-sel-alt-crs-btn";
         let menuContent = (
             this.props.alternateSections.map((val, idx) => {
-                return (<div key={idx}><a className="sched-sel-alt-crs-menu-item"
-                    onClick={(evt) => {
-                        this.sectionSelectedHandler(idx, val);
-                        this.setState({ menuOpen: false });
-                    }}
+                return (
+                    <div key={idx}><a className="sched-sel-alt-crs-menu-item"
+                        onClick={(evt) => {
+                            this.sectionSelectedHandler(idx, val);
+                            this.setState({ menuOpen: false });
+                        }}
 
-                >{val.sec.section_id}</a></div>);
+                    >{val.sec.section_id}</a></div>
+                );
             })
         );
 

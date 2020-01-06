@@ -62,13 +62,24 @@ interface AppState {
 
 /**
  * Dec 27 todo:
+ * Priority 1
+ * [ ] Show / highlight totally conflicting courses and show options for removing them
+ * [ ] "Block sections" by excluding them, or "Lock" a section.
+ * [ ] If error with added course (no meeting sections and whatnot) then display a warning.
+ * 
+ * Priority 2
+ * [ ] Show hover effect when mouseover course list
  * [ ] Better displaying of currently selected campus(es)
- * [ ] Show / highlight conflicting courses and show options for removing them
+ *       [ ] Show clear difference between StG and UTM courses.
  * [ ] Select unoccupied timeslots and find courses to occupy them.
- * [ ] "Block sections" by excluding them.
  * [ ] Apply filters to results (on the right)
- * [ ] Show clear difference between StG and UTM courses.
- * [ ] UI Polishment
+ * [ ] Show overview of sections in current view
+ * [ ] Show helpful links to respective timetables tools (in particular, show coursefinder link under search for "advanced searching options"
+ * [ ] Filter or prefer courses by their number of sections: [24L]
+ * [ ] Allow temporary disable of selected courses in the bucket ( respective section blocks/prefers will also be disabled )
+ * [ ] View schedule in text format / printable format
+ * [ ] UI Polishment - theming
+ * [ ] Display course info by hours per week.
  * 
  * Oct 14 :
  * - Change timetable display to use position:absolute with nested div
