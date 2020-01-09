@@ -89,7 +89,7 @@ interface AppState {
  * [ ] Display course info by hours per week.
  * [ ] Refactor code to lift components
  * [ ] cache the "previous search index" for searches.
- * 
+ *  * [ ] Cached data refreshing / transfer using gzip
  * Priority 3
  * [ ] Async searches
  * [ ] Searches can auto skip to a predefined result.
