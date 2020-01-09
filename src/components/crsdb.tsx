@@ -1,5 +1,5 @@
 import { Course, CourseSelection, CourseSection, Timeslot } from "./course";
-
+import { Skeleton } from 'antd';
 import { DLXMatrix } from "./dlxmatrix"
 import { AssertionError } from "assert";
 
@@ -20,7 +20,8 @@ export class crsdb {
     }
 
     static crs_store = {}; // crs data store: crs_store[campus][session] : Course[]
-    static crs_store_prefix = {}; // crs data store (uppercase prefix tree): crs_store[campus][session][letter1][letter2][letter3] : Course[]
+    static crs_store_prefix = {}; // crs data store (uppercase prefix tree): crs_store_prefix[campus][session][letter1][letter2][letter3] : Course[]
+    static crs_unique_id_map = {}; // crs unique-id map: crs_unique_id_map[unique_id] : Course
 
     public static data_updated_date: Date = null;
     static async fetch_crs_data(campus, session, force_reload = false): Promise<Course[]> {
@@ -52,6 +53,7 @@ export class crsdb {
                 crs.campus = campus;
                 crs.session = session;
                 crs.unique_id = `${campus}-${session}-${crs.course_code}`;
+                crsdb.crs_unique_id_map[crs.unique_id] = crs;
                 // map_pos will be of format: {}{}{}[]
                 let map_pos = crs_map;
                 for (let idx = 0; idx < 3; idx++) {
@@ -97,6 +99,19 @@ export class crsdb {
         else return crs_list.filter((x: Course) => x.course_code.toUpperCase().startsWith(crs_code));
     }
 
+    static get_crs_by_uid(unique_id:string){
+        if (!(unique_id in crsdb.crs_unique_id_map)) {
+            console.error("get_crs_selections_by_id: course unique id not found: " + unique_id);
+            return null;
+        }
+        return crsdb.crs_unique_id_map[unique_id];
+    }
+
+    static get_crs_selections_by_id(unique_id: string, section_ids: string[]): CourseSelection[] {
+        
+        return crsdb.get_crs_selections(crsdb.get_crs_by_uid(unique_id), section_ids);
+    }
+
     /**
      * Get a course selection given a course object and a list of section id's to take.
      * If any section specified is invalid, or not all sections are filled exactly once, then an error will be thrown.
@@ -104,7 +119,7 @@ export class crsdb {
      * @param crs 
      * @param section_ids 
      */
-    static get_crs_selections(crs: Course, ...section_ids: string[]) {
+    static get_crs_selections(crs: Course, section_ids: string[]): CourseSelection[] {
         let output: CourseSelection[] = [];
         let satisfy_sections = Object.keys(crs.course_sections); // list of sectypes to satisfy
         section_ids.forEach((secId) => {

@@ -8,7 +8,7 @@ import { DLXMatrix } from "./dlxmatrix"
 import { crsdb, Campus, Campus_Formatted } from "./crsdb"
 import { Course, CourseSection, CourseSectionsDict, Timeslot, CourseSelection } from "./course"
 import { SchedDisp } from "./sched_disp";
-import { AutoComplete, Button, Card, Tabs, Icon, Input, Badge, Collapse, Pagination, Popover, Checkbox, message } from 'antd';
+import { AutoComplete, Button, Card, Tabs, Icon, Input, Badge, Collapse, Pagination, Popover, Checkbox, message, Skeleton } from 'antd';
 import { AutoCompleteProps } from "antd/lib/auto-complete";
 import { AssertionError } from "assert";
 import { crs_arrange, SchedSearchResult } from "./schedule";
@@ -50,27 +50,34 @@ interface AppState {
     cur_search_status: string;
 
     search_crs_list: Course[];
-    search_result: CourseSelection[][][];
+    search_crs_mask: boolean[];
 
+    search_result: CourseSelection[][][];
     search_result_idx: number;
     search_result_limit: number;
     /**
      * Array of selected indices for equivalent sections in the current search result.
      */
     search_result_selections: number[];
+
+    preload_crs_skeleton_linecount: number;
 }
 
 /**
  * Dec 27 todo:
  * Priority 1
  * [ ] Show / highlight totally conflicting courses and show options for removing them
- * [ ] "Block sections" by excluding them, or "Lock" a section.
+ * [X] Toggle courses on/off
+ *      [ ] do we auto refresh or not
+ * [X] save courses with cookies ploX
+ * [ ] "Block sections" by excluding them, or "Lock" a section. - how to keep the same result while locked ? 
+ *              hmm. need a checksum for each schedule and perform a comparison. during calculation, check schedule match.
  * [ ] If error with added course (no meeting sections and whatnot) then display a warning.
+ * [ ] Better displaying of currently selected campus(es)
+ *       [ ] Show clear difference between StG and UTM courses.
  * 
  * Priority 2
  * [ ] Show hover effect when mouseover course list
- * [ ] Better displaying of currently selected campus(es)
- *       [ ] Show clear difference between StG and UTM courses.
  * [ ] Select unoccupied timeslots and find courses to occupy them.
  * [ ] Apply filters to results (on the right)
  * [ ] Show overview of sections in current view
@@ -80,7 +87,12 @@ interface AppState {
  * [ ] View schedule in text format / printable format
  * [ ] UI Polishment - theming
  * [ ] Display course info by hours per week.
+ * [ ] Refactor code to lift components
+ * [ ] cache the "previous search index" for searches.
  * 
+ * Priority 3
+ * [ ] Async searches
+ * [ ] Searches can auto skip to a predefined result.
  * Oct 14 :
  * - Change timetable display to use position:absolute with nested div
  * - Add course selection button and made it its own component
@@ -135,8 +147,45 @@ interface AppState {
  *  - Ranking of solutions based on preference
  *  - Any other ideas welcome
  */
+
+interface AppCookie {
+    search_crs_uids: string[],
+    search_crs_mask: boolean[]
+}
+
 class App extends React.Component<AppProps, AppState> {
     dropdownRef: React.RefObject<AutoComplete>;
+    loadCookie(): AppCookie {
+        if (document.cookie == null) return null;
+        let foundCookies = document.cookie.split(";").filter(c => c.startsWith("data="));
+        if (foundCookies.length == 0) return null;
+        if (foundCookies.length != 1) {
+            console.error("More than one data cookie found. Previous saved cookie data is not loaded.");
+            return null;
+        }
+
+        return JSON.parse(atob(foundCookies[0].substr("data=".length)));
+    }
+
+    saveCookie(obj: AppCookie) {
+        document.cookie = `data=${btoa(JSON.stringify(obj))};`; // set cookie will silently fail if the character count exceeds the maximum of 4096 on chrome.
+    }
+
+    loadData() {
+        let loadedCookie: AppCookie = this.loadCookie() || { search_crs_uids: [], search_crs_mask: [] };
+        this.setState({
+            search_crs_list: loadedCookie.search_crs_uids.map(uid => crsdb.get_crs_by_uid(uid)),
+            search_crs_mask: loadedCookie.search_crs_mask,
+        });
+    }
+
+    saveData() {
+        this.saveCookie({
+            search_crs_uids: this.state.search_crs_list.map(crs => crs.unique_id),
+            search_crs_mask: this.state.search_crs_mask
+        });
+    }
+
     constructor(props) {
         // Required step: always call the parent class' constructor
         super(props);
@@ -144,6 +193,7 @@ class App extends React.Component<AppProps, AppState> {
         this.dropdownRef = React.createRef<AutoComplete>();
 
         this.handleSelectionIndicesChanged = this.handleSelectionIndicesChanged.bind(this);
+
 
         // Set the state directly. Use props if necessary.
         this.state = {
@@ -164,13 +214,16 @@ class App extends React.Component<AppProps, AppState> {
             cur_search_status: null,
 
             search_crs_list: [],
+            search_crs_mask: [],
 
             search_result: [],
             search_result_idx: 0,
 
             search_result_limit: 1000000,
 
-            search_result_selections: []
+            search_result_selections: [],
+
+            preload_crs_skeleton_linecount: 0
         }
     }
 
@@ -180,17 +233,24 @@ class App extends React.Component<AppProps, AppState> {
         // Promise.all will return a new promise that resolves when the input list of promises have resolved.
         // It will resolve with an array of results for each promise in the input list.
         // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise/all
+
+        let cookies: AppCookie = this.loadCookie();
+        let crsSkeletonLineCount = cookies != null ? cookies.search_crs_uids.length : 0;
+        this.setState({
+            preload_crs_skeleton_linecount: crsSkeletonLineCount
+        });
+
         Promise.all(Object.keys(Campus).map(key => Campus[key]).map(campus => {
             return crsdb.fetch_crs_data(campus, this.state.cur_session);
         })).then(() => {
             console.log(crsdb.data_updated_date);
+            this.loadData();
             this.setState({
                 data_loaded: true,
                 data_updated_date: crsdb.data_updated_date == null ? "(unable to get updated date)" : crsdb.data_updated_date.toDateString().substring(4)
             });
         }).catch(err => {
             console.log(err)
-
             if (!this.state.data_load_error) {
                 message.error("Unable to retrieve course data. ", 0);
                 this.setState({
@@ -217,17 +277,32 @@ class App extends React.Component<AppProps, AppState> {
         this.setState({
             search_result: [],
             search_crs_list: this.state.search_crs_list.concat(crsObj),
-            cur_search_status: null
-        });
+            search_crs_mask: this.state.search_crs_mask.concat(true),
+            cur_search_status: null,
+        },
+            this.saveData);
     }
 
     crs_removeSearchCrs(crsObj: Course) {
         console.assert(this.state.search_crs_list.findIndex(crs => crs.unique_id == crsObj.unique_id) != -1);
+        let removeIdx = this.state.search_crs_list.indexOf(crsObj);
         this.setState({
             search_result: [],
-            search_crs_list: this.state.search_crs_list.filter(crs => crs != crsObj),
+            search_crs_list: this.state.search_crs_list.filter((crs, idx) => idx != removeIdx),
+            search_crs_mask: this.state.search_crs_mask.filter((crs, idx) => idx != removeIdx),
             cur_search_status: null
-        });
+        },
+            this.saveData);
+    }
+
+    crs_toggleCrsIndex(idx: number) {
+        this.state.search_crs_mask[idx] = !this.state.search_crs_mask[idx];
+        this.setState({ search_crs_mask: this.state.search_crs_mask },
+            () => {
+                this.crs_doSearch();
+                this.saveData();
+            }
+        );
     }
 
     crs_doSearch() {
@@ -241,8 +316,9 @@ class App extends React.Component<AppProps, AppState> {
         }
 
         let all_sections: CourseSelection[] = [];
-        this.state.search_crs_list.forEach((crs) => {
-            all_sections.push(...this.crs_listAllSections(crs));
+        this.state.search_crs_list.forEach((crs, idx) => {
+            if (this.state.search_crs_mask[idx])
+                all_sections.push(...this.crs_listAllSections(crs));
         });
         let search_result: SchedSearchResult = crs_arrange.find_sched(all_sections, this.state.search_result_limit);
         let search_status: string;
@@ -289,7 +365,6 @@ class App extends React.Component<AppProps, AppState> {
     }
 
     public render() {
-
         if (this.state.data_loaded) {
         }
         // TODO: add buttons that show on hover: Info (contains edit sections / remove functionality), Edit sections, Remove
@@ -330,18 +405,47 @@ class App extends React.Component<AppProps, AppState> {
             });
         }
 
-        let crs_search_items = this.state.search_crs_list.map(crs => {
-            return (
-                <div key={crs.course_code}>
-                    <span style={{ float: "left" }}>{/*`[${Campus_Formatted[crs.campus]}] `*/}{crs.course_code}</span>
-                    <span style={{ float: "right" }}>&nbsp;<Icon type="close" onClick={() => {
-                        this.crs_removeSearchCrs(crs);
+        let crs_search_items;
 
-                    }} /></span>
-                    <br />
-                </div>
-            );
-        });
+        if (this.state.data_loaded) {
+            crs_search_items = this.state.search_crs_list.map((crs, idx) => {
+                return (
+                    <div key={crs.course_code} className="crs-bucket-item">
+                        <div>
+                            <span style={{ float: "left", width: "90%" }}>
+                                <Checkbox
+                                    className="unselectable"
+                                    checked={this.state.search_crs_mask[idx]}
+                                    onChange={() => {
+                                        this.crs_toggleCrsIndex(idx);
+                                    }}
+                                    style={{ width: "100%" }}
+                                >
+                                    {`[${Campus_Formatted[crs.campus]}] `}{crs.course_code}
+                                </Checkbox>
+                            </span>
+                            <span style={{ float: "right" }}>&nbsp;<Icon type="close" onClick={() => {
+                                this.crs_removeSearchCrs(crs);
+                            }} /></span>
+                            <br />
+                        </div>
+                    </div>
+                );
+            });
+        } else {
+            crs_search_items = [];
+            for (let index = 0; index < this.state.preload_crs_skeleton_linecount; index++) {
+                crs_search_items.push(
+                    <div key={index} className="crs-bucket-item-preload">
+                        <span style={{ float: "left", width: "90%" }}>
+                            <Skeleton active title={false} paragraph={{ rows: 1, style: { marginBottom: "0px" } }} />
+                        </span>
+                        <span style={{ float: "right" }}>&nbsp;<Icon type="close" /></span>
+                        <br />
+                    </div>
+                );
+            }
+        }
 
         if (crs_search_items.length == 0) {
             crs_search_items = [(
