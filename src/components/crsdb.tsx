@@ -108,8 +108,13 @@ export class crsdb {
     }
 
     static get_crs_selections_by_id(unique_id: string, section_ids: string[]): CourseSelection[] {
-        
         return crsdb.get_crs_selections(crsdb.get_crs_by_uid(unique_id), section_ids);
+    }
+
+    static get_crs_section_by_id(crs :Course, section_id:string){
+        let secType = section_id.substr(0, 3);
+        let sec: CourseSection = crs.course_sections[secType].find(x => x.section_id == section_id);
+        return sec;
     }
 
     /**
@@ -121,19 +126,19 @@ export class crsdb {
      */
     static get_crs_selections(crs: Course, section_ids: string[]): CourseSelection[] {
         let output: CourseSelection[] = [];
-        let satisfy_sections = Object.keys(crs.course_sections); // list of sectypes to satisfy
+        let satisfy_sections = new Set<string>(Object.keys(crs.course_sections)); // list of sectypes to satisfy
         section_ids.forEach((secId) => {
             let secType = secId.substr(0, 3);
-            let secIdx = satisfy_sections.indexOf(secType);
-            if (secIdx == -1) {
-                throw `Invalid combination of sections selected: type not found: ${secId} in ${crs.course_code}`;
-            }
-
-            // assume all the section id's are already different in the JSON, otherwise it'd probably break acorn too :)
-            let sec: CourseSection = crs.course_sections[secType].find(x => x.section_id == secId);
+            
+            let sec = crsdb.get_crs_section_by_id(crs, secId);
             if (sec == null) {
                 throw `Could not find section: ${secId} in ${crs.course_code}`;
             }
+
+            if (!satisfy_sections.has(secType)) {
+                throw `Invalid combination of sections selected: type not found, or duplicate section selected: ${secId} in ${crs.course_code}`;
+            }
+            
             output.push(
                 {
                     crs: crs,
@@ -141,10 +146,10 @@ export class crsdb {
                 }
             );
 
-            satisfy_sections.splice(secIdx, 1); // remove satisfied sectype from list
+            satisfy_sections.delete(secType); // remove satisfied sectype from list
         });
 
-        if (satisfy_sections.length > 0) {
+        if (satisfy_sections.size > 0) {
             throw `Sections unsatisfied for ${crs.course_code}: ${satisfy_sections}`;
         }
 

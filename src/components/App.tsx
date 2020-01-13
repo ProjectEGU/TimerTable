@@ -49,8 +49,7 @@ interface AppState {
     cur_session: string;
     cur_search_status: string;
 
-    search_crs_list: Course[];
-    search_crs_mask: boolean[];
+    search_crs_list: SearchCrs[];
 
     search_result: CourseSelection[][][];
     search_result_idx: number;
@@ -63,6 +62,7 @@ interface AppState {
     preload_crs_skeleton_linecount: number;
 }
 
+
 /**
  * Dec 27 todo:
  * Priority 1
@@ -70,7 +70,8 @@ interface AppState {
  * [X] Toggle courses on/off
  *      [ ] do we auto refresh or not
  * [X] save courses with cookies ploX
- * [ ] "Block sections" by excluding them, or "Lock" a section. - how to keep the same result while locked ? 
+ * [-] "Block sections" by excluding them, or "Lock" a section.
+ *      [ ] how to keep the same result while locked ? 
  *              hmm. need a checksum for each schedule and perform a comparison. during calculation, check schedule match.
  * [ ] If error with added course (no meeting sections and whatnot) then display a warning.
  * [ ] Better displaying of currently selected campus(es)
@@ -148,9 +149,28 @@ interface AppState {
  *  - Any other ideas welcome
  */
 
+interface SearchCrsPacked {
+    crs_uid: string;
+    crs_filter_sections: string[];
+    enabled: boolean;
+    sections_filtermode: SectionFilterMode;
+}
 interface AppCookie {
-    search_crs_uids: string[],
-    search_crs_mask: boolean[]
+    search_crs_data: SearchCrsPacked[];
+}
+enum SectionFilterMode {
+    Unrestricted,
+    Solo, // indicates that solely those sections are to be included when searching.
+    Exclude // indicates that those sections are to be excluded when searching.
+}
+
+interface SearchCrs {
+    crs: Course, // all sections are automatically added, with the filter_sections taken into consideration. 
+    // the behavior of filter_sections will depend on SectionFilterMode.
+    filter_sections: Set<CourseSection>,
+    // at any point, a course may not have both exclude_sections and solo_sections specified.
+    enabled: boolean,
+    sections_filtermode: SectionFilterMode
 }
 
 class App extends React.Component<AppProps, AppState> {
@@ -168,21 +188,44 @@ class App extends React.Component<AppProps, AppState> {
     }
 
     saveCookie(obj: AppCookie) {
-        document.cookie = `data=${btoa(JSON.stringify(obj))};`; // set cookie will silently fail if the character count exceeds the maximum of 4096 on chrome.
+        document.cookie = `data=${btoa(JSON.stringify(obj))};`; // setting the cookie will cause silent failure if the character count exceeds the maximum of 4096 on chrome.
     }
 
     loadData() {
-        let loadedCookie: AppCookie = this.loadCookie() || { search_crs_uids: [], search_crs_mask: [] };
-        this.setState({
-            search_crs_list: loadedCookie.search_crs_uids.map(uid => crsdb.get_crs_by_uid(uid)),
-            search_crs_mask: loadedCookie.search_crs_mask,
-        });
+        try {
+            let loadedCookie: AppCookie = this.loadCookie() || { search_crs_data: [] };
+            this.setState({
+                search_crs_list: loadedCookie.search_crs_data.map(dataObj => {
+                    let crsObj = crsdb.get_crs_by_uid(dataObj.crs_uid);
+                    let filterSectionObjs = new Set<CourseSection>();
+                    dataObj.crs_filter_sections.forEach(sectionId => {
+                        filterSectionObjs.add(crsdb.get_crs_section_by_id(crsObj, sectionId));
+                    });
+                    return {
+                        crs: crsObj,
+                        filter_sections: filterSectionObjs,
+                        enabled: dataObj.enabled,
+                        sections_filtermode: dataObj.sections_filtermode
+                    };
+                }),
+            });
+        } catch (error) {
+            message.warning("Cookies failed to load. ", 3);
+        }
+
+
     }
 
     saveData() {
         this.saveCookie({
-            search_crs_uids: this.state.search_crs_list.map(crs => crs.unique_id),
-            search_crs_mask: this.state.search_crs_mask
+            search_crs_data: this.state.search_crs_list.map(searchCrs => {
+                return {
+                    crs_uid: searchCrs.crs.unique_id,
+                    crs_filter_sections: Array.from(searchCrs.filter_sections, sec => sec.section_id),
+                    enabled: searchCrs.enabled,
+                    sections_filtermode: searchCrs.sections_filtermode
+                }
+            }),
         });
     }
 
@@ -208,13 +251,12 @@ class App extends React.Component<AppProps, AppState> {
             crs_search_str: "",
             crs_search_dropdown_open: false,
 
-            cur_campus_set: new Set<Campus>([Campus.STG_ARTSCI]),
+            cur_campus_set: new Set<Campus>([Campus.UTM, Campus.STG_ARTSCI]),
             cur_session: "20199",
 
             cur_search_status: null,
 
             search_crs_list: [],
-            search_crs_mask: [],
 
             search_result: [],
             search_result_idx: 0,
@@ -235,11 +277,12 @@ class App extends React.Component<AppProps, AppState> {
         // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise/all
 
         let cookies: AppCookie = this.loadCookie();
-        let crsSkeletonLineCount = cookies != null ? cookies.search_crs_uids.length : 0;
+        let crsSkeletonLineCount = cookies?.search_crs_data?.length || 0;
         this.setState({
             preload_crs_skeleton_linecount: crsSkeletonLineCount
         });
 
+        let errorEncountered = false;
         Promise.all(Object.keys(Campus).map(key => Campus[key]).map(campus => {
             return crsdb.fetch_crs_data(campus, this.state.cur_session);
         })).then(() => {
@@ -251,8 +294,9 @@ class App extends React.Component<AppProps, AppState> {
             });
         }).catch(err => {
             console.log(err)
-            if (!this.state.data_load_error) {
-                message.error("Unable to retrieve course data. ", 0);
+            if (!errorEncountered) {
+                errorEncountered = true;
+                message.error("Unable to retrieve course data. Please refresh the page.", 0);
                 this.setState({
                     data_load_error: true,
                     data_load_error_reason: err
@@ -272,32 +316,35 @@ class App extends React.Component<AppProps, AppState> {
 
     crs_addSearchCrs(crsObj: Course) {
         // if course is already in current list, then skip operation
-        if (this.state.search_crs_list.findIndex(crs => crs.unique_id == crsObj.unique_id) != -1)
+        if (this.state.search_crs_list.findIndex(search_crs => search_crs.crs.unique_id == crsObj.unique_id) != -1)
             return;
         this.setState({
             search_result: [],
-            search_crs_list: this.state.search_crs_list.concat(crsObj),
-            search_crs_mask: this.state.search_crs_mask.concat(true),
+            search_crs_list: this.state.search_crs_list.concat({
+                crs: crsObj,
+                filter_sections: new Set<CourseSection>(),
+                enabled: true,
+                sections_filtermode: SectionFilterMode.Unrestricted
+            }),
             cur_search_status: null,
         },
             this.saveData);
     }
 
     crs_removeSearchCrs(crsObj: Course) {
-        console.assert(this.state.search_crs_list.findIndex(crs => crs.unique_id == crsObj.unique_id) != -1);
-        let removeIdx = this.state.search_crs_list.indexOf(crsObj);
+        let removeIdx = this.state.search_crs_list.findIndex(searchCrs => searchCrs.crs.unique_id == crsObj.unique_id);
+        console.assert(removeIdx != -1);
         this.setState({
             search_result: [],
             search_crs_list: this.state.search_crs_list.filter((crs, idx) => idx != removeIdx),
-            search_crs_mask: this.state.search_crs_mask.filter((crs, idx) => idx != removeIdx),
             cur_search_status: null
         },
             this.saveData);
     }
 
     crs_toggleCrsIndex(idx: number) {
-        this.state.search_crs_mask[idx] = !this.state.search_crs_mask[idx];
-        this.setState({ search_crs_mask: this.state.search_crs_mask },
+        this.state.search_crs_list[idx].enabled = !this.state.search_crs_list[idx].enabled;
+        this.setState({ search_crs_list: this.state.search_crs_list },
             () => {
                 this.crs_doSearch();
                 this.saveData();
@@ -316,9 +363,30 @@ class App extends React.Component<AppProps, AppState> {
         }
 
         let all_sections: CourseSelection[] = [];
-        this.state.search_crs_list.forEach((crs, idx) => {
-            if (this.state.search_crs_mask[idx])
-                all_sections.push(...this.crs_listAllSections(crs));
+        this.state.search_crs_list.forEach((searchCrs) => {
+            if (searchCrs.enabled) {
+                let crs_sections = this.crs_listAllSections(searchCrs.crs);
+                switch (searchCrs.sections_filtermode) {
+                    case SectionFilterMode.Exclude:
+                        if (searchCrs.filter_sections.size == crs_sections.length)
+                            console.error(`All sections for ${searchCrs.crs.course_code} are excluded.`);
+                        all_sections.push(...(crs_sections.filter(crsSel => !searchCrs.filter_sections.has(crsSel.sec))));
+                        break;
+
+                    case SectionFilterMode.Solo:
+                        if (searchCrs.filter_sections.size == 0)
+                            console.error(`An empty set of sections for ${searchCrs.crs.course_code} is soloed.`);
+                        all_sections.push(...(crs_sections.filter(crsSel => searchCrs.filter_sections.has(crsSel.sec))));
+                        break;
+                    case SectionFilterMode.Unrestricted:
+                        all_sections.push(...crs_sections);
+                        break;
+                    default:
+                        console.log(`The course ${searchCrs.crs.course_code} has an invalid section filter mode.`);
+                        break;
+                }
+
+            }
         });
         let search_result: SchedSearchResult = crs_arrange.find_sched(all_sections, this.state.search_result_limit);
         let search_status: string;
@@ -408,24 +476,24 @@ class App extends React.Component<AppProps, AppState> {
         let crs_search_items;
 
         if (this.state.data_loaded) {
-            crs_search_items = this.state.search_crs_list.map((crs, idx) => {
+            crs_search_items = this.state.search_crs_list.map((searchCrs, idx) => {
                 return (
-                    <div key={crs.course_code} className="crs-bucket-item">
+                    <div key={searchCrs.crs.course_code} className="crs-bucket-item">
                         <div>
                             <span style={{ float: "left", width: "90%" }}>
                                 <Checkbox
                                     className="unselectable"
-                                    checked={this.state.search_crs_mask[idx]}
+                                    checked={searchCrs.enabled}
                                     onChange={() => {
                                         this.crs_toggleCrsIndex(idx);
                                     }}
                                     style={{ width: "100%" }}
                                 >
-                                    {`[${Campus_Formatted[crs.campus]}] `}{crs.course_code}
+                                    {`[${Campus_Formatted[searchCrs.crs.campus]}] `}{searchCrs.crs.course_code}
                                 </Checkbox>
                             </span>
                             <span style={{ float: "right" }}>&nbsp;<Icon type="close" onClick={() => {
-                                this.crs_removeSearchCrs(crs);
+                                this.crs_removeSearchCrs(searchCrs.crs);
                             }} /></span>
                             <br />
                         </div>
@@ -482,7 +550,9 @@ class App extends React.Component<AppProps, AppState> {
                             {/*<Card size="small" style={{ width: "auto" }}>
                                 <p>Select courses:</p>
                                 {crs_disp_items}
-                        </Card>*/}
+                        </Card>*/
+
+                            }
 
                             <Card size="small" style={{ width: "auto" }}>
                                 <p>Select courses from the dropdown below, and then press the 'Search' button to generate schedules.</p>

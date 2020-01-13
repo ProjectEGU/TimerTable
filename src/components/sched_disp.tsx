@@ -83,6 +83,7 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
     }
 
     sectionChangedHandler(grp_idx, new_selected_section) {
+        
         if (this.props.onSelectionIndicesChanged != undefined) {
             let new_indices = this.props.crs_selections_indices.slice();
             new_indices[grp_idx] = this.props.crs_selections_groups[grp_idx].indexOf(new_selected_section);
