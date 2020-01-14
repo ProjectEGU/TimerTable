@@ -1,5 +1,5 @@
 import * as React from "react";
-import { CourseSelection, Timeslot } from "./course";
+import { Course, CourseSection, CourseSelection, Timeslot } from "./course";
 import "./../assets/scss/sched_disp.scss";
 import { AssertionError } from "assert";
 import { crsdb } from "./crsdb";
@@ -10,7 +10,14 @@ interface SchedDispProps {
     show_term: string,
     crs_selections_groups: CourseSelection[][],
     crs_selections_indices: number[],
-    loading?: boolean,//show when crs data is being loaded
+
+    crs_solo_sections?: Set<CourseSection>, // A set of solo sections, stored as pointers to the sections provided in crs_selection_groups.
+    crs_exclude_sections?: Set<CourseSection>, // A set of excluded sections, stored as pointers to the sections provided in crs_selection_groups.
+
+    // A callback function when solo sections / exclude sections are added or removed. If this method is not null, then crs_solo_sections and crs_exclude_sections must also not be null.
+    onCrsFilterSectionsChanged?: (crs: Course, new_solo_sections: Set<CourseSection>, new_exclude_sections: Set<CourseSection>) => void,
+
+    loading?: boolean,// show when crs data is being loaded
     next_selection?: CourseSelection, // shows a course pending to be added (such as during mouseover of a button for selection)
     startTime?: number[], // the start of the displayed time. if null, then use the earliest course start. specify as [hour, mins] in 24h format
     endTime?: number[], // the end of the displayed time. if null, then use the latest course end. specify as [hour, mins] in 24h format
@@ -19,7 +26,7 @@ interface SchedDispProps {
     labelsPerLine?: number,
     show_double?: boolean,
 
-    onSelectionIndicesChanged?: (new_indices: number[]) => void
+    onSelectionIndicesChanged?: (new_indices: number[]) => void,
 }
 
 interface SchedDispState {
@@ -83,7 +90,7 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
     }
 
     sectionChangedHandler(grp_idx, new_selected_section) {
-        
+
         if (this.props.onSelectionIndicesChanged != undefined) {
             let new_indices = this.props.crs_selections_indices.slice();
             new_indices[grp_idx] = this.props.crs_selections_groups[grp_idx].indexOf(new_selected_section);
@@ -290,9 +297,9 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
                         // because arrow functions are re-created, it may cause rerendering of React Components
                         // in this case, these are direct DOM components which will not be rerendered by change in callbackfn
                         // TODO: consider abstracting this part to a function
-                        //TODO: improve tooltip methodology
+                        // TODO: improve tooltip methodology
 
-                        //TODO: alternate methodology to update cells highlights without re-render of entire timetable:
+                        // TODO: alternate methodology to update cells highlights without re-render of entire timetable:
                         // create each cell as its own component
                         // create map of cell refs in this format: CourseSection -> CellRef[] mapping.
                         // then, make the onMouseOver and onMouseLeave events call an alternate hover/leave (that does not propagate) for each of the refs
@@ -318,8 +325,8 @@ ${place_ct.tslot.room_name_1}
 ${place_ct.crs_sel.sec.instructors}`
                                     }
                                     className={(place_ct.n_exclusions == 0 ? `sched-crscell` : `sched-crscell-conflict`) + (place_ct.selected ? ` sched-crscell-hover` : ``)}
-
                                 >
+
                                     {place_ct.crs_sel.crs.course_code.substr(0, 6)} {place_ct.crs_sel.sec.section_id}
                                     <br />
                                     {place_ct.crs_sel.crs.term == 'F' ? place_ct.tslot.room_name_1 : place_ct.tslot.room_name_2}
@@ -335,8 +342,51 @@ ${place_ct.crs_sel.sec.instructors}`
                                                 onSectionSelected={(new_sel_idx, new_sel_section) => this.sectionChangedHandler(place_ct.crs_grp_idx, new_sel_section)}
                                             />
                                     }
+                                    <ul style={{
+                                        listStyleType: "none",
+                                        overflow: "hidden",
+                                        margin: 0,
+                                        padding: 0,
+                                        position: "absolute",
+                                        top: "2px",
+                                        right: "2px",
+                                        left: "2px"
+                                    }}>
+
+                                        <li style={{ float: "right", cursor: "pointer" }}
+                                            onClick={() => {
+                                                if (this.props.onCrsFilterSectionsChanged != null) {
+                                                    // Lock button clicked
+                                                    let new_solo_sections = new Set<CourseSection>();
+                                                    new_solo_sections.add(place_ct.crs_sel.sec);
+                                                    this.props.onCrsFilterSectionsChanged(place_ct.crs_sel.crs,
+                                                        new_solo_sections,
+                                                        this.props.crs_exclude_sections);
+                                                }
+                                            }}
+                                        >
+                                            <Icon className="LockButton" type="close-square" theme="filled"
+                                                style={{ display: "block", padding: "5px 5px 3px 5px", margin: "2px 0px 5px 0px" }} />
+                                        </li>
+                                        <li style={{ float: "right", cursor: "pointer" }}
+                                            onClick={() => {
+                                                if (this.props.onCrsFilterSectionsChanged != null) {
+                                                    // Cross button clicked
+                                                    let new_exclude_sections = new Set<CourseSection>(this.props.crs_exclude_sections.values());
+                                                    new_exclude_sections.add(place_ct.crs_sel.sec);
+                                                    this.props.onCrsFilterSectionsChanged(place_ct.crs_sel.crs,
+                                                        this.props.crs_solo_sections,
+                                                        new_exclude_sections);
+                                                }
+                                            }}
+                                        >
+                                            <Icon className="LockButton" type="lock" theme="filled"
+                                                style={{ display: "block", padding: "5px 5px 3px 5px", margin: "2px 0px 5px 0px" }} />
+                                        </li>
+
+                                    </ul>
                                 </div>
-                            </td>
+                            </td >
                         );
                         place_ct.placed = true;
                         remainingRowspan[wkidx][excl_idx] = place_rowspan;
