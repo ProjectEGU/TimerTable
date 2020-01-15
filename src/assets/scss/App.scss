@@ -68,6 +68,12 @@ body {
 .crs-bucket-item:hover {
   background-color: #DEDEDE;
 }
+.filtered-section-soloed:hover {
+  background-color: rgb(250, 152, 152);
+}
+.filtered-section-excluded:hover {
+  background-color:rgb(250, 152, 152);
+}
 
 @media screen and (max-width: 700px) {
   .tt-tabs {

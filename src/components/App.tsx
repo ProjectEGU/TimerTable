@@ -49,7 +49,12 @@ interface AppState {
     cur_session: string;
     cur_search_status: string;
 
-    search_crs_list: SearchCrs[];
+    search_crs_list: Course[];
+    search_crs_solo_sections_map: Map<Course, Set<CourseSection>>,// a list of solo/exclude sections for all courses
+    search_crs_exclude_sections_map: Map<Course, Set<CourseSection>>,
+    // at any point, a course may not have the same course in both solo_sections and exclude_sections
+    search_crs_enabled: boolean[],
+    search_crs_sections_filtermode: SectionFilterMode[]
 
     search_result: CourseSelection[][][];
     search_result_idx: number;
@@ -70,7 +75,11 @@ interface AppState {
  * [X] Toggle courses on/off
  *      [ ] do we auto refresh or not
  * [X] save courses with cookies ploX
- * [-] "Block sections" by excluding them, or "Lock" a section.
+ * [X] "Block sections" by excluding them, or "Lock" a section.
+ *      [X] locking down lecture sections doesn't also mean locking down tutorials or practicals - TEMP FIXED 
+ *              - more permanent solution requires to have separate sets for each section type for each course. this ends up to be 3 sets per course.
+ *      [ ] group equivalent sections together by color on the right panel display
+ *      [ ] show if any type of required section had been fully excluded.
  *      [ ] how to keep the same result while locked ? 
  *              hmm. need a checksum for each schedule and perform a comparison. during calculation, check schedule match.
  * [ ] If error with added course (no meeting sections and whatnot) then display a warning.
@@ -150,28 +159,16 @@ interface AppState {
  *  - Any other ideas welcome
  */
 
-interface SearchCrsPacked {
-    crs_uid: string;
-    crs_solo_sections: string[];
-    crs_exclude_sections: string[];
-    enabled: boolean;
-    sections_filtermode: SectionFilterMode;
-}
 interface AppCookie {
-    search_crs_data: SearchCrsPacked[];
+    crs_uids: string[];
+    crs_solo_sections_obj: Object; // an object that maps the course's unique ID (string) to a list of its solo section IDs (string)
+    crs_exclude_sections_obj: Object; // an object that maps the course's unique ID (string) to a list of its exclusion section IDs (string)
+    crs_enabled: boolean[];
+    crs_sections_filtermode: SectionFilterMode[];
 }
 enum SectionFilterMode {
     Solo, // indicates that solely those sections are to be included when searching.
     Exclude // indicates that those sections are to be excluded when searching.
-}
-
-interface SearchCrs {
-    crs: Course, // all sections are automatically added, with the filter_sections taken into consideration. 
-    solo_sections: Set<CourseSection>,
-    exclude_sections: Set<CourseSection>,
-    // at any point, a course may not have the same course in both solo_sections and exclude_sections
-    enabled: boolean,
-    sections_filtermode: SectionFilterMode
 }
 
 class App extends React.Component<AppProps, AppState> {
@@ -194,12 +191,16 @@ class App extends React.Component<AppProps, AppState> {
 
     loadData() {
         try {
-            let loadedCookie: AppCookie = this.loadCookie() || { search_crs_data: [] };
-            this.setState({
-                search_crs_list: loadedCookie.search_crs_data.map(dataObj => {
-                    let crsObj = crsdb.get_crs_by_uid(dataObj.crs_uid);
+            let loadedCookie: AppCookie = this.loadCookie() || {
+                crs_enabled: [],
+                crs_solo_sections_obj: new Object(), crs_exclude_sections_obj: new Object(),
+                crs_sections_filtermode: [], crs_uids: []
+            };
+            /*
+ search_crs_list: loadedCookie.crs_uids.map((crs_uid, idx) => {
+                    let crsObj = crsdb.get_crs_by_uid(crs_uid);
                     let soloSectionObjs = new Set<CourseSection>();
-                    dataObj.crs_solo_sections.forEach(sectionId => {
+                    loadedCookie.crs_solo_sections[idx].forEach(sectionId => {
                         soloSectionObjs.add(crsdb.get_crs_section_by_id(crsObj, sectionId));
                     });
                     let excludeSectionObjs = new Set<CourseSection>();
@@ -214,25 +215,64 @@ class App extends React.Component<AppProps, AppState> {
                         sections_filtermode: dataObj.sections_filtermode
                     };
                 }),
+            */
+            let crsObjs: Course[] = [];
+
+            let soloSectionObjsMap: Map<Course, Set<CourseSection>> = new Map<Course, Set<CourseSection>>();
+            let excludeSectionObjsMap: Map<Course, Set<CourseSection>> = new Map<Course, Set<CourseSection>>();
+
+            loadedCookie.crs_uids.map((crs_uid, idx) => {
+                let crsObj = crsdb.get_crs_by_uid(crs_uid);
+                crsObjs.push(crsObj);
+
+                let soloSectionObjs = new Set<CourseSection>();
+                let excludeSectionObjs = new Set<CourseSection>();
+
+                loadedCookie.crs_solo_sections_obj[crs_uid].forEach(sectionId => {
+                    let crsSectionObj = crsdb.get_crs_section_by_id(crsObj, sectionId);
+                    soloSectionObjs.add(crsSectionObj);
+                });
+
+                loadedCookie.crs_exclude_sections_obj[crs_uid].forEach(sectionId => {
+                    let crsSectionObj = crsdb.get_crs_section_by_id(crsObj, sectionId);
+                    excludeSectionObjs.add(crsSectionObj);
+                });
+
+                soloSectionObjsMap.set(crsObj, soloSectionObjs);
+                excludeSectionObjsMap.set(crsObj, excludeSectionObjs);
+            });
+
+            this.setState({
+                search_crs_list: crsObjs,
+                search_crs_solo_sections_map: soloSectionObjsMap,// a map of course object to the set of solo/exclude sections
+                search_crs_exclude_sections_map: excludeSectionObjsMap,
+                // at any point, a course may not have the same course in both solo_sections and exclude_sections
+                search_crs_enabled: loadedCookie.crs_enabled,
+                search_crs_sections_filtermode: loadedCookie.crs_sections_filtermode
             });
         } catch (error) {
             message.warning("Cookies failed to load. ", 3);
         }
-
-
     }
 
     saveData() {
+        // convert javascript Maps into plain JS objects, so that they work with JSON.stringify.
+
+        let soloSectionsObj = new Object(); // a JS object with keys consisting of the course's unique ID, and values which are arrays of soloed section IDs for that course.
+        let excludeSectionsObj = new Object();
+        this.state.search_crs_solo_sections_map.forEach((val, key) => {
+            soloSectionsObj[key.unique_id] = Array.from(val.values()).map(sec => sec.section_id);
+        });
+        this.state.search_crs_exclude_sections_map.forEach((val, key) => {
+            excludeSectionsObj[key.unique_id] = Array.from(val.values()).map(sec => sec.section_id);
+        });
+
         this.saveCookie({
-            search_crs_data: this.state.search_crs_list.map(searchCrs => {
-                return {
-                    crs_uid: searchCrs.crs.unique_id,
-                    crs_solo_sections: Array.from(searchCrs.solo_sections, sec => sec.section_id),
-                    crs_exclude_sections: Array.from(searchCrs.exclude_sections, sec => sec.section_id),
-                    enabled: searchCrs.enabled,
-                    sections_filtermode: searchCrs.sections_filtermode
-                }
-            }),
+            crs_uids: this.state.search_crs_list.map(crs => crs.unique_id),
+            crs_solo_sections_obj: soloSectionsObj,
+            crs_exclude_sections_obj: excludeSectionsObj,
+            crs_enabled: this.state.search_crs_enabled,
+            crs_sections_filtermode: this.state.search_crs_sections_filtermode
         });
     }
 
@@ -243,7 +283,8 @@ class App extends React.Component<AppProps, AppState> {
         this.dropdownRef = React.createRef<AutoComplete>();
 
         this.handleSelectionIndicesChanged = this.handleSelectionIndicesChanged.bind(this);
-        this.handleCrsFilterSectionChanged = this.handleCrsFilterSectionChanged.bind(this);
+
+        this.crs_updateSearchCrsFilterSections = this.crs_updateSearchCrsFilterSections.bind(this);
 
         // Set the state directly. Use props if necessary.
         this.state = {
@@ -264,6 +305,12 @@ class App extends React.Component<AppProps, AppState> {
             cur_search_status: null,
 
             search_crs_list: [],
+            search_crs_solo_sections_map: new Map<Course, Set<CourseSection>>(),
+            search_crs_exclude_sections_map: new Map<Course, Set<CourseSection>>(),
+
+            // at any point, a course may not have the same course in both solo_sections and exclude_sections
+            search_crs_enabled: [],
+            search_crs_sections_filtermode: [],
 
             search_result: [],
             search_result_idx: 0,
@@ -284,7 +331,10 @@ class App extends React.Component<AppProps, AppState> {
         // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise/all
 
         let cookies: AppCookie = this.loadCookie();
-        let crsSkeletonLineCount = cookies?.search_crs_data?.length || 0;
+        let crsSkeletonLineCount = 0;
+        if (cookies != null)
+            crsSkeletonLineCount = cookies.crs_uids.length
+
         this.setState({
             preload_crs_skeleton_linecount: crsSkeletonLineCount
         });
@@ -323,47 +373,86 @@ class App extends React.Component<AppProps, AppState> {
 
     crs_addSearchCrs(crsObj: Course) {
         // if course is already in current list, then skip operation
-        if (this.state.search_crs_list.findIndex(search_crs => search_crs.crs.unique_id == crsObj.unique_id) != -1)
+        if (this.state.search_crs_list.findIndex(crs => crs.unique_id == crsObj.unique_id) != -1)
             return;
+        /*
+    
+            crs: crsObj,
+            solo_sections: new Set<CourseSection>(),
+            exclude_sections: new Set<CourseSection>(),
+            enabled: true,
+            sections_filtermode: SectionFilterMode.Exclude
+        */
+        let new_solo_map = new Map<Course, Set<CourseSection>>(this.state.search_crs_solo_sections_map);
+        let new_exclusion_map = new Map<Course, Set<CourseSection>>(this.state.search_crs_exclude_sections_map);
+        new_solo_map.set(crsObj, new Set<CourseSection>());
+        new_exclusion_map.set(crsObj, new Set<CourseSection>());
         this.setState({
             search_result: [],
-            search_crs_list: this.state.search_crs_list.concat({
-                crs: crsObj,
-                solo_sections: new Set<CourseSection>(),
-                exclude_sections: new Set<CourseSection>(),
-                enabled: true,
-                sections_filtermode: SectionFilterMode.Exclude
-            }),
+
+            search_crs_list: this.state.search_crs_list.concat(crsObj),
+            search_crs_enabled: this.state.search_crs_enabled.concat(true),
+            search_crs_solo_sections_map: new_solo_map,
+            search_crs_exclude_sections_map: new_exclusion_map,
+            search_crs_sections_filtermode: this.state.search_crs_sections_filtermode.concat(SectionFilterMode.Exclude),
             cur_search_status: null,
         },
             this.saveData);
     }
 
     crs_removeSearchCrs(crsObj: Course) {
-        let removeIdx = this.state.search_crs_list.findIndex(searchCrs => searchCrs.crs.unique_id == crsObj.unique_id);
+        let removeIdx = this.state.search_crs_list.findIndex(crs => crs.unique_id == crsObj.unique_id);
         console.assert(removeIdx != -1);
+        let new_solo_map = new Map<Course, Set<CourseSection>>(this.state.search_crs_solo_sections_map);
+        let new_exclusion_map = new Map<Course, Set<CourseSection>>(this.state.search_crs_exclude_sections_map);
+        new_solo_map.delete(crsObj);
+        new_exclusion_map.delete(crsObj);
         this.setState({
             search_result: [],
+            cur_search_status: null,
             search_crs_list: this.state.search_crs_list.filter((crs, idx) => idx != removeIdx),
-            cur_search_status: null
+            search_crs_enabled: this.state.search_crs_enabled.filter((crs, idx) => idx != removeIdx),
+            search_crs_solo_sections_map: new_solo_map,
+            search_crs_exclude_sections_map: new_exclusion_map,
+            search_crs_sections_filtermode: this.state.search_crs_sections_filtermode.filter((crs, idx) => idx != removeIdx),
         },
             this.saveData);
     }
 
-    crs_updateSearchCrsFilterSections(crsObj: Course, new_solo_sections: Set<CourseSection>, new_exclude_sections: Set<CourseSection>) {
-        let crsIdx = this.state.search_crs_list.findIndex(searchCrs => searchCrs.crs.unique_id == crsObj.unique_id);
+    crs_updateSearchCrsFilterSections(targetCrsObj: Course, new_solo_sections: Map<Course, Set<CourseSection>>, new_exclude_sections: Map<Course, Set<CourseSection>>) {
+        let crsIdx = this.state.search_crs_list.findIndex(crs => crs.unique_id == targetCrsObj.unique_id);
         console.assert(crsIdx != -1);
-        // should make copy of the new_solo_sections and new_exclude_sections sets here, but, immutablejs may be helpful.
-        this.state.search_crs_list[crsIdx].solo_sections = new_solo_sections;
-        this.state.search_crs_list[crsIdx].exclude_sections = new_exclude_sections;
+        /*let new_solo_map = new Map<Course, Set<CourseSection>>(this.state.search_crs_solo_sections_map);
+        let new_exclusion_map = new Map<Course, Set<CourseSection>>(this.state.search_crs_exclude_sections_map);
+        new_solo_map.set(crsObj, new_solo_sections);
+        new_exclusion_map.set(crsObj, new_exclude_sections);*/
+        // The entire map goes into the component's props, and we trust the component to properly modify the whole map, and pass it back to this callback.
+        // console.log(new_solo_sections);
+        // console.log(new_exclude_sections);
+
+        // if a whitelist is specified, then activate the whitelist mode. otherwise, continue to use blacklist mode.
+        let new_filtermodes_list = [...this.state.search_crs_sections_filtermode];
+        new_filtermodes_list[crsIdx] = new_solo_sections.get(targetCrsObj).size != 0 ? SectionFilterMode.Solo : SectionFilterMode.Exclude;
         this.setState(
-            {search_crs_list: this.state.search_crs_list}
+            {
+                search_crs_sections_filtermode: new_filtermodes_list,
+                search_crs_solo_sections_map: new_solo_sections,
+                search_crs_exclude_sections_map: new_exclude_sections,
+                // search_crs_solo_sections_all: new_search_crs_solo_sections.reduce((prev, cur) => { cur.forEach(sec => { prev.add(sec); }); return prev; }), // union of all sets in the list
+                // search_crs_exclude_sections_all: new_search_crs_exclude_sections.reduce((prev, cur) => { cur.forEach(sec => { prev.add(sec); }); return prev; }), // union of all sets in the list
+            },
+            () => {
+                this.saveData(); // save data to cookies after updating the state.
+                this.crs_doSearch(); // perform search again
+            }
         );
+
     }
 
     crs_toggleCrsIndex(idx: number) {
-        this.state.search_crs_list[idx].enabled = !this.state.search_crs_list[idx].enabled;
-        this.setState({ search_crs_list: this.state.search_crs_list },
+        let new_search_crs_enabled = [...this.state.search_crs_enabled];
+        new_search_crs_enabled[idx] = !(new_search_crs_enabled[idx]);
+        this.setState({ search_crs_enabled: new_search_crs_enabled },
             () => {
                 this.crs_doSearch();
                 this.saveData();
@@ -382,29 +471,51 @@ class App extends React.Component<AppProps, AppState> {
         }
 
         let all_sections: CourseSelection[] = [];
-        this.state.search_crs_list.forEach((searchCrs) => {
+        this.state.search_crs_list.forEach((crs, idx) => {
             // assert searchCrs.exclude_sections intersect searchCrs.soloSections is empty.
             // A section may not be excluded and soloed at the same time.
-            if (searchCrs.enabled) {
-                let crs_sections = this.crs_listAllSections(searchCrs.crs);
-                switch (searchCrs.sections_filtermode) {
+            if (this.state.search_crs_enabled[idx]) {
+                let crs_sections = this.crs_listAllSections(crs);
+                // TODO: this is a temporary fix to allow for whitelist/blacklist of mixed sections.
+                // -> we will ignore the filter mode.
+                let sectypes = ["LEC", "TUT", "PRA"];
+                sectypes.forEach(sectype => {
+                    // partition each set into the three section types.
+                    let sections_t_whitelist = new Set<CourseSection>(Array.from(this.state.search_crs_solo_sections_map.get(crs).values()).filter(sec => sec.section_id.substr(0, 3) == sectype));
+                    let sections_t_blacklist = new Set<CourseSection>(Array.from(this.state.search_crs_exclude_sections_map.get(crs).values()).filter(sec => sec.section_id.substr(0, 3) == sectype));
+
+                    let sections_t = crs_sections.filter(sel => {
+                        if (sel.sec.section_id.substr(0, 3) != sectype) return false;
+
+                        if (sections_t_whitelist.size == 0) { // no whitelisted sections of the type: then, check the blacklist
+                            return !sections_t_blacklist.has(sel.sec);
+                        } else { // there are whitelisted sections of the type: then, check the whitelist
+                            return sections_t_whitelist.has(sel.sec);
+                        }
+                    });
+
+                    all_sections.push(...sections_t);
+                });
+
+                /* OLD IMPLEMENTATION
+                switch (this.state.search_crs_sections_filtermode[idx]) {
                     case SectionFilterMode.Exclude:
-                        if (searchCrs.exclude_sections.size == crs_sections.length)
-                            console.error(`All sections for ${searchCrs.crs.course_code} are excluded.`);
-                        if (searchCrs.exclude_sections.size == 0)
+                        if (this.state.search_crs_exclude_sections_map.get(crs).size == crs_sections.length)
+                            console.error(`All sections for ${crs.course_code} are excluded.`);
+                        if (this.state.search_crs_exclude_sections_map.get(crs).size == 0)
                             all_sections.push(...crs_sections);
                         else
-                            all_sections.push(...(crs_sections.filter(crsSel => !searchCrs.exclude_sections.has(crsSel.sec))));
+                            all_sections.push(...(crs_sections.filter(crsSel => !this.state.search_crs_exclude_sections_map.get(crs).has(crsSel.sec))));
                         break;
                     case SectionFilterMode.Solo:
-                        if (searchCrs.solo_sections.size == 0)
-                            console.error(`An empty set of sections for ${searchCrs.crs.course_code} is soloed.`);
-                        all_sections.push(...(crs_sections.filter(crsSel => searchCrs.solo_sections.has(crsSel.sec))));
+                        if (this.state.search_crs_solo_sections_map.get(crs).size == 0)
+                            console.error(`An empty set of sections for ${crs.course_code} is soloed.`);
+                        all_sections.push(...(crs_sections.filter(crsSel => this.state.search_crs_solo_sections_map.get(crs).has(crsSel.sec))));
                         break;
                     default:
-                        console.log(`The course ${searchCrs.crs.course_code} has an invalid section filter mode.`);
+                        console.log(`The course ${crs.course_code} has an invalid section filter mode.`);
                         break;
-                }
+                }*/
 
             }
         });
@@ -450,16 +561,9 @@ class App extends React.Component<AppProps, AppState> {
         this.setState({ search_result_selections: new_indices });
     }
 
-    handleCrsFilterSectionChanged(crs: Course, new_solo_sections: CourseSection[], new_exclude_sections: CourseSection[]) {
-        let targetCrs = this.state.search_crs_list.find((searchCrs) => crs == searchCrs.crs);
-        console.assert(targetCrs != null);
-
-    }
-
     public render() {
         if (this.state.data_loaded) {
         }
-        // TODO: add buttons that show on hover: Info (contains edit sections / remove functionality), Edit sections, Remove
 
         let dataSource = [];
 
@@ -500,40 +604,56 @@ class App extends React.Component<AppProps, AppState> {
         let crs_search_items;
 
         if (this.state.data_loaded) {
-            crs_search_items = this.state.search_crs_list.map((searchCrs, idx) => {
-                let lockedSections = Array.from(searchCrs.solo_sections.values()).map((sec: CourseSection) => {
-                    return (<div><Icon type="lock" /> {sec.section_id}</div>)
+            crs_search_items = this.state.search_crs_list.map((crs, idx) => {
+                let lockedSections = Array.from(this.state.search_crs_solo_sections_map.get(crs).values()).map((sec: CourseSection) => {
+                    return (<div key={sec.section_id} className="filtered-section-soloed" style={{ width: "100%", cursor: "pointer" }}
+                        onClick={() => {
+                            let newSoloMap = new Map<Course, Set<CourseSection>>(this.state.search_crs_solo_sections_map);
+                            let newSoloSet = new Set<CourseSection>(newSoloMap.get(crs));
+                            newSoloSet.delete(sec);
+                            newSoloMap.set(crs, newSoloSet);
+                            this.crs_updateSearchCrsFilterSections(crs, newSoloMap, this.state.search_crs_exclude_sections_map);
+                        }}
+                    ><Icon type="lock" /> {sec.section_id}</div>)
                 });
 
-                let blockedSections = Array.from(searchCrs.exclude_sections.values()).map((sec: CourseSection) => {
-                    return (<div><Icon type="minus-circle" theme="filled" /> {sec.section_id}</div>)
+                let blockedSections = Array.from(this.state.search_crs_exclude_sections_map.get(crs).values()).map((sec: CourseSection) => {
+                    return (<div key={sec.section_id} className="filtered-section-excluded" style={{ width: "100%", cursor: "pointer" }}
+                        onClick={() => {
+                            let newExcludeMap = new Map<Course, Set<CourseSection>>(this.state.search_crs_exclude_sections_map);
+                            let newExcludeSet = new Set<CourseSection>(newExcludeMap.get(crs));
+                            newExcludeSet.delete(sec);
+                            newExcludeMap.set(crs, newExcludeSet);
+                            this.crs_updateSearchCrsFilterSections(crs, this.state.search_crs_solo_sections_map, newExcludeMap);
+                        }}
+                    ><Icon type="minus-circle" theme="filled" /> {sec.section_id}</div>)
                 });
 
                 return (
-                    <div key={searchCrs.crs.course_code} className="crs-bucket-item">
-                        <span className="unselectable" style={{ float: "left", width: "90%" }}>
-                            <Checkbox
-                                checked={searchCrs.enabled}
-                                onChange={() => {
-                                    this.crs_toggleCrsIndex(idx);
-                                }}
-                                style={{ width: "100%" }}
-                            >
-                                {`[${Campus_Formatted[searchCrs.crs.campus]}] `}{searchCrs.crs.course_code}
-                            </Checkbox>
-                        </span>
-                        <span style={{ float: "right" }}>&nbsp;<Icon type="close"
-                            onClick={() => {
-                                this.crs_removeSearchCrs(searchCrs.crs);
-                            }} /></span>
-                        <br />
-                        <span className="unselectable" style={{ paddingLeft: "20px", }} >
+                    <div key={crs.course_code} className="crs-bucket-item">
+                        <div style={{ width: "100%" }}>
+                            <span key="a" className="unselectable" style={{ width: "85%" }}>
+                                <Checkbox
+                                    checked={this.state.search_crs_enabled[idx]}
+                                    onChange={() => {
+                                        this.crs_toggleCrsIndex(idx);
+                                    }}
+                                    style={{ width: "85%" }}
+                                >
+                                    {`[${Campus_Formatted[crs.campus]}] `}{crs.course_code}
+                                </Checkbox>
+                                <Icon type="close"
+                                    onClick={() => {
+                                        this.crs_removeSearchCrs(crs);
+                                    }} />
+                            </span>
+                        </div>
+                        <div key="c" className="unselectable" style={{ paddingLeft: "20px", }} >
                             {lockedSections}
-                        </span>
-                        <br />
-                        <span className="unselectable" style={{ paddingLeft: "20px", }} >
+                        </div>
+                        <div key="d" className="unselectable" style={{ paddingLeft: "20px", }} >
                             {blockedSections}
-                        </span>
+                        </div>
                     </div>
                 );
             });
@@ -562,6 +682,7 @@ class App extends React.Component<AppProps, AppState> {
         let sectionsList = showSearchResults ? this.state.search_result[this.state.search_result_idx] : [];
 
         let crs_dropdown_open = this.state.crs_search_dropdown_open && dataSource.length > 0;
+
         return (
             <div className="app">
                 <div className="ctrls">
@@ -700,18 +821,23 @@ class App extends React.Component<AppProps, AppState> {
                     >
                         <Tabs.TabPane tab="Fall" key="F">
                             <SchedDisp crs_selections_groups={sectionsList} crs_selections_indices={this.state.search_result_selections} show_term={"F"}
+                                crs_solo_sections_map={this.state.search_crs_solo_sections_map} crs_exclude_sections_map={this.state.search_crs_exclude_sections_map}
                                 onSelectionIndicesChanged={this.handleSelectionIndicesChanged}
-
+                                onCrsFilterSectionsChanged={this.crs_updateSearchCrsFilterSections}
                             />
                         </Tabs.TabPane>
                         <Tabs.TabPane tab="Winter" key="S">
                             <SchedDisp crs_selections_groups={sectionsList} crs_selections_indices={this.state.search_result_selections} show_term={"S"}
+                                crs_solo_sections_map={this.state.search_crs_solo_sections_map} crs_exclude_sections_map={this.state.search_crs_exclude_sections_map}
                                 onSelectionIndicesChanged={this.handleSelectionIndicesChanged}
+                                onCrsFilterSectionsChanged={this.crs_updateSearchCrsFilterSections}
                             />
                         </Tabs.TabPane>
                         <Tabs.TabPane tab="Both" key="Y">
                             <SchedDisp crs_selections_groups={sectionsList} crs_selections_indices={this.state.search_result_selections} show_term={"Y"} show_double={true}
+                                crs_solo_sections_map={this.state.search_crs_solo_sections_map} crs_exclude_sections_map={this.state.search_crs_exclude_sections_map}
                                 onSelectionIndicesChanged={this.handleSelectionIndicesChanged}
+                                onCrsFilterSectionsChanged={this.crs_updateSearchCrsFilterSections}
                             />
                         </Tabs.TabPane>
                     </Tabs>

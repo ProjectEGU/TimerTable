@@ -32,6 +32,16 @@ table {
             text-overflow: clip;
             white-space: nowrap;
         }
+
+        .adjButton {
+            color: #202020;
+            background-color: #00000000;
+        }
+
+        .adjButtonActive {
+            color: #404040;
+            background-color: #EEFFEE70;
+        }
     }
 }
 
