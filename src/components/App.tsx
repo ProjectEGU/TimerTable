@@ -54,7 +54,7 @@ interface AppState {
     search_crs_exclude_sections_map: Map<Course, Set<CourseSection>>,
     // at any point, a course may not have the same course in both solo_sections and exclude_sections
     search_crs_enabled: boolean[],
-    search_crs_sections_filtermode: SectionFilterMode[]
+    search_crs_sections_filtermode: SectionFilterMode[],
 
     search_result: CourseSelection[][][];
     search_result_idx: number;
@@ -72,6 +72,18 @@ interface AppState {
  * Dec 27 todo:
  * Priority 1
  * [ ] Show / highlight totally conflicting courses and show options for removing them
+ * [ ] Sched rank algorithm. sort the schedules by rank.
+ *      possible heuristics:
+ *          - Prefer shorter days
+ *          - Prefer earlier/middle/evening
+ *          - Prefer free days
+ *      prefilterable restrictions:
+ *          - No courses within selected timeslots
+ *          - Allow for conflicts of up to 30 mins or more
+ *          - Allow for conflict with a specific course
+ *          - No more than 3 hours of courses in a row
+ *              (can also be no more than 3 hours of lectures)
+ *          - At least 1 hour between courses of different campus
  * [X] Toggle courses on/off
  *      [ ] do we auto refresh or not
  * [X] save courses with cookies ploX
@@ -81,11 +93,11 @@ interface AppState {
  *      [ ] group equivalent sections together by color on the right panel display
  *      [ ] show if any type of required section had been fully excluded.
  *      [ ] how to keep the same result while locked ? 
- *              hmm. need a checksum for each schedule and perform a comparison. during calculation, check schedule match.
  * [ ] If error with added course (no meeting sections and whatnot) then display a warning.
  * [ ] Better displaying of currently selected campus(es)
  *       [ ] Show clear difference between StG and UTM courses.
  * [ ] Use immutable.js
+ * [ ] Allow saving of schedules
  * 
  * Priority 2
  * [ ] Show hover effect when mouseover course list
@@ -104,6 +116,7 @@ interface AppState {
  * Priority 3
  * [ ] Async searches
  * [ ] Searches can auto skip to a predefined result.
+ * [ ] !Find courses to fill empty slots.
  * Oct 14 :
  * - Change timetable display to use position:absolute with nested div
  * - Add course selection button and made it its own component
