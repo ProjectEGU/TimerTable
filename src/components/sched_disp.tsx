@@ -26,6 +26,7 @@ interface SchedDispProps {
     stepsPerLine?: number,
     labelsPerLine?: number,
     show_double?: boolean,
+    showLockExcludeBtns: boolean,
 
     onSelectionIndicesChanged?: (new_indices: number[]) => void,
 }
@@ -63,7 +64,8 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
         stepMins: 30, // the number of minutes increase per cell
         stepsPerLine: 2,// how many steps before drawing a line
         labelsPerLine: 2, // how many steps before showing a label
-        show_double: false // by default, only show a single semester
+        show_double: false, // by default, only show a single semester
+        showLockExcludeBtns: true
     }
     constructor(props) {
         // Required step: always call the parent class' constructor
@@ -308,6 +310,90 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
                         // alternate #2: have all cell displays as part of a separate absolutely positioned div element
                         // then, in that absolutely positioned div element, all mouseover events can be efficiently handled.
 
+                        let lockExcludeBtns = (<ul style={{
+                            listStyleType: "none",
+                            overflow: "hidden",
+                            margin: 0,
+                            padding: 0,
+                            position: "absolute",
+                            top: "2px",
+                            right: "2px",
+                            left: "2px"
+                        }}>
+                            <li style={{ float: "right", cursor: "pointer" }}
+                                onClick={() => {
+                                    if (this.props.onCrsFilterSectionsChanged != null) {
+
+                                        // Do not allow excluding a section that is in the whitelist
+                                        if (this.props.crs_solo_sections_map.get(place_ct.crs_sel.crs).has(place_ct.crs_sel.sec)) return;
+                                        // Cross button clicked
+                                        let new_exclude_sections_map = new Map<Course, Set<CourseSection>>(this.props.crs_exclude_sections_map);
+                                        let new_exclude_set = new Set<CourseSection>(new_exclude_sections_map.get(place_ct.crs_sel.crs));
+
+                                        // assert that the section clicked is not a part of blacklisted sections
+                                        console.assert(!new_exclude_set.has(place_ct.crs_sel.sec));
+                                        // add all the equivalent sections to the blacklist
+                                        place_ct.equiv_alternate_sections.forEach(sel => new_exclude_set.add(sel.sec));
+                                        new_exclude_set.add(place_ct.crs_sel.sec);
+                                        new_exclude_sections_map.set(place_ct.crs_sel.crs, new_exclude_set);
+
+                                        this.props.onCrsFilterSectionsChanged(
+                                            place_ct.crs_sel.crs,
+                                            this.props.crs_solo_sections_map,
+                                            new_exclude_sections_map);
+                                    }
+                                }}
+                            >
+                                <Icon className={
+                                    this.props.crs_exclude_sections_map != null
+                                        ? (this.props.crs_exclude_sections_map.get(place_ct.crs_sel.crs).has(place_ct.crs_sel.sec) ? "adjButtonActive" :
+                                            (this.props.crs_solo_sections_map.get(place_ct.crs_sel.crs).has(place_ct.crs_sel.sec) ? "adjButtonLocked" : "adjButton"))
+                                        : "adjButton"
+                                } type="close-square" theme="filled"
+                                    style={{ display: "block", padding: "5px 5px 3px 5px", margin: "2px 0px 5px 0px" }} />
+                            </li>
+
+                            <li style={{ float: "right", cursor: "pointer" }}
+                                onClick={() => {
+                                    if (this.props.onCrsFilterSectionsChanged != null) {
+                                        // Lock button clicked
+                                        let new_solo_sections_map = new Map<Course, Set<CourseSection>>(this.props.crs_solo_sections_map);
+                                        let new_solo_set = new Set<CourseSection>(new_solo_sections_map.get(place_ct.crs_sel.crs));
+
+                                        // check if the section clicked is a whitelisted section: if it is, then remove from whitelist.
+                                        if (new_solo_set.has(place_ct.crs_sel.sec)) {
+                                            // remove this section and all equivalent sections from whitelist
+                                            place_ct.equiv_alternate_sections.forEach(sel => new_solo_set.delete(sel.sec));
+                                            new_solo_set.delete(place_ct.crs_sel.sec);
+                                        } else {
+                                            // add all equivalent sections to the whitelist too
+                                            place_ct.equiv_alternate_sections.forEach(sel => new_solo_set.add(sel.sec));
+                                            new_solo_set.add(place_ct.crs_sel.sec);
+                                        }
+
+                                        new_solo_sections_map.set(place_ct.crs_sel.crs, new_solo_set);
+                                        this.props.onCrsFilterSectionsChanged(
+                                            place_ct.crs_sel.crs,
+                                            new_solo_sections_map,
+                                            this.props.crs_exclude_sections_map);
+                                    }
+                                }}
+                            >
+                                <Icon className={
+                                    this.props.crs_solo_sections_map != null
+                                        ? (this.props.crs_solo_sections_map.get(place_ct.crs_sel.crs).has(place_ct.crs_sel.sec) ? "adjButtonActive" : "adjButton")
+                                        : "adjButton"
+                                } type="lock" theme="filled"
+                                    style={
+                                        {
+                                            display: "block", padding: "5px 5px 3px 5px", margin: "2px 0px 5px 0px",
+                                        }
+                                    } />
+                            </li>
+
+                        </ul>
+                        );
+
                         thisRow.push(
                             <td key={`${wkday}-${excl_idx}-${curTime}`}
                                 rowSpan={place_rowspan}
@@ -343,87 +429,8 @@ ${place_ct.crs_sel.sec.instructors}`
                                                 onSectionSelected={(new_sel_idx, new_sel_section) => this.sectionChangedHandler(place_ct.crs_grp_idx, new_sel_section)}
                                             />
                                     }
-                                    <ul style={{
-                                        listStyleType: "none",
-                                        overflow: "hidden",
-                                        margin: 0,
-                                        padding: 0,
-                                        position: "absolute",
-                                        top: "2px",
-                                        right: "2px",
-                                        left: "2px"
-                                    }}>
-                                        <li style={{ float: "right", cursor: "pointer" }}
-                                            onClick={() => {
-                                                if (this.props.onCrsFilterSectionsChanged != null) {
 
-                                                    // Do not allow excluding a section that is in the whitelist
-                                                    if (this.props.crs_solo_sections_map.get(place_ct.crs_sel.crs).has(place_ct.crs_sel.sec)) return;
-                                                    // Cross button clicked
-                                                    let new_exclude_sections_map = new Map<Course, Set<CourseSection>>(this.props.crs_exclude_sections_map);
-                                                    let new_exclude_set = new Set<CourseSection>(new_exclude_sections_map.get(place_ct.crs_sel.crs));
-
-                                                    // assert that the section clicked is not a part of blacklisted sections
-                                                    console.assert(!new_exclude_set.has(place_ct.crs_sel.sec));
-                                                    // add all the equivalent sections to the blacklist
-                                                    place_ct.equiv_alternate_sections.forEach(sel => new_exclude_set.add(sel.sec));
-                                                    new_exclude_set.add(place_ct.crs_sel.sec);
-                                                    new_exclude_sections_map.set(place_ct.crs_sel.crs, new_exclude_set);
-
-                                                    this.props.onCrsFilterSectionsChanged(
-                                                        place_ct.crs_sel.crs,
-                                                        this.props.crs_solo_sections_map,
-                                                        new_exclude_sections_map);
-                                                }
-                                            }}
-                                        >
-                                            <Icon className={
-                                                this.props.crs_exclude_sections_map != null
-                                                    ? (this.props.crs_exclude_sections_map.get(place_ct.crs_sel.crs).has(place_ct.crs_sel.sec) ? "adjButtonActive" : "adjButton")
-                                                    : "adjButton"
-                                            } type="close-square" theme="filled"
-                                                style={{ display: "block", padding: "5px 5px 3px 5px", margin: "2px 0px 5px 0px" }} />
-                                        </li>
-
-                                        <li style={{ float: "right", cursor: "pointer" }}
-                                            onClick={() => {
-                                                if (this.props.onCrsFilterSectionsChanged != null) {
-                                                    // Lock button clicked
-                                                    let new_solo_sections_map = new Map<Course, Set<CourseSection>>(this.props.crs_solo_sections_map);
-                                                    let new_solo_set = new Set<CourseSection>(new_solo_sections_map.get(place_ct.crs_sel.crs));
-
-                                                    // check if the section clicked is a whitelisted section: if it is, then remove from whitelist.
-                                                    if (new_solo_set.has(place_ct.crs_sel.sec)) {
-                                                        // remove this section and all equivalent sections from whitelist
-                                                        place_ct.equiv_alternate_sections.forEach(sel => new_solo_set.delete(sel.sec));
-                                                        new_solo_set.delete(place_ct.crs_sel.sec);
-                                                    } else {
-                                                        // add all equivalent sections to the whitelist too
-                                                        place_ct.equiv_alternate_sections.forEach(sel => new_solo_set.add(sel.sec));
-                                                        new_solo_set.add(place_ct.crs_sel.sec);
-                                                    }
-
-                                                    new_solo_sections_map.set(place_ct.crs_sel.crs, new_solo_set);
-                                                    this.props.onCrsFilterSectionsChanged(
-                                                        place_ct.crs_sel.crs,
-                                                        new_solo_sections_map,
-                                                        this.props.crs_exclude_sections_map);
-                                                }
-                                            }}
-                                        >
-                                            <Icon className={
-                                                this.props.crs_solo_sections_map != null
-                                                    ? (this.props.crs_solo_sections_map.get(place_ct.crs_sel.crs).has(place_ct.crs_sel.sec) ? "adjButtonActive" : "adjButton")
-                                                    : "adjButton"
-                                            } type="lock" theme="filled"
-                                                style={
-                                                    {
-                                                        display: "block", padding: "5px 5px 3px 5px", margin: "2px 0px 5px 0px",
-                                                    }
-                                                } />
-                                        </li>
-
-                                    </ul>
+                                    {this.props.showLockExcludeBtns ? lockExcludeBtns : null}
                                 </div>
                             </td >
                         );

@@ -1,6 +1,6 @@
 import jsonpickle
 
-with open("course_data_utm_20199", "r") as f:
+with open("course_data_stg_artsci_20199", "r") as f:
     all_crs = jsonpickle.loads(f.read())
 
 

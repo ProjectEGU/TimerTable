@@ -5,7 +5,8 @@ import { Campus } from "./crsdb";
 import "./../assets/scss/alt_sect_btn.scss";
 
 export interface SettingsInfo {
-    selectedCampus: Set<Campus>
+    selectedCampus: Set<Campus>,
+    showLockExcludeBtn: boolean
 }
 
 interface SettingsProps {
@@ -17,6 +18,7 @@ interface SettingsProps {
 interface SettingsState {
     // data model vars
     curCampusSelection: Set<Campus>;
+    curShowLockExcludeBtn: boolean;
 
     // display vars
     errorMsg: string,
@@ -37,6 +39,7 @@ export class SettingsButton extends React.Component<SettingsProps, SettingsState
         // Set the state directly. Use props if necessary.
         this.state = {
             curCampusSelection: props.currentSettings.selectedCampus,
+            curShowLockExcludeBtn: true,
 
             errorMsg: null,
             settingsValid: true,
@@ -80,11 +83,12 @@ export class SettingsButton extends React.Component<SettingsProps, SettingsState
         // revert the settings when 'cancel' is clicked, or when menu is prematurely hidden
 
         this.setState({
-            curCampusSelection: this.props.currentSettings.selectedCampus
+            curCampusSelection: this.props.currentSettings.selectedCampus,
+            curShowLockExcludeBtn: this.props.currentSettings.showLockExcludeBtn,
         });
 
-         // fire off settingsCancelled event
-         if (this.props.onSettingsCancelled != undefined) {
+        // fire off settingsCancelled event
+        if (this.props.onSettingsCancelled != undefined) {
             this.props.onSettingsCancelled();
         }
     }
@@ -98,7 +102,8 @@ export class SettingsButton extends React.Component<SettingsProps, SettingsState
         // settings report
         if (this.props.onSettingsModified != undefined) {
             let newSettings: SettingsInfo = {
-                selectedCampus: new Set<Campus>(this.state.curCampusSelection)
+                selectedCampus: new Set<Campus>(this.state.curCampusSelection),
+                showLockExcludeBtn: this.state.curShowLockExcludeBtn
             }
 
             this.props.onSettingsModified(newSettings);
@@ -108,7 +113,6 @@ export class SettingsButton extends React.Component<SettingsProps, SettingsState
 
     campusSelectionHandler(campus: Campus, selected: boolean) {
         // update campus selections without modifying previous state
-
         let newCampusSelection = new Set(this.state.curCampusSelection);
         if (selected) {
             newCampusSelection.add(campus);
@@ -118,7 +122,12 @@ export class SettingsButton extends React.Component<SettingsProps, SettingsState
         this.setState({ curCampusSelection: newCampusSelection }, () => {
             this.settingsValidation(); // perform settingsValidation after the update to this.state has taken effect
         });
+    }
 
+    lockBtnHandler(enabled:boolean){
+        this.setState({ curShowLockExcludeBtn: enabled }, () => {
+            this.settingsValidation(); // perform settingsValidation after the update to this.state has taken effect
+        });
     }
 
     render() {
@@ -129,7 +138,14 @@ export class SettingsButton extends React.Component<SettingsProps, SettingsState
                 onVisibleChange={(isVisible) => { this.menuVisibleChanged(isVisible) }}
                 visible={this.state.showMenu}
                 content={
-                    <div>
+                    <>
+                        <div> Display options: </div>
+                            <Checkbox onChange={e => {
+                                this.lockBtnHandler(e.target.checked);
+                            }}
+                                checked={this.state.curShowLockExcludeBtn}
+                            >Show lock and block buttons</Checkbox>
+
                         <div> Enable search in these campuses:</div>
                         <div>
                             <Checkbox onChange={e => {
@@ -173,7 +189,7 @@ export class SettingsButton extends React.Component<SettingsProps, SettingsState
                                 }}
                             >OK</Button>
                         </div>
-                    </div>
+                    </>
                 }
             >
                 <Button

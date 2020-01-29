@@ -21,17 +21,6 @@ interface AppProps {
 interface CrsState {
     crs_obj_list: Course[];
     crs_sections: CourseSelection[];
-    /*
-    TODO: Consider using a "unique id" -> CourseSelection[] mapping
-    Advantage:
-        - Faster addition / removal of all sections of a specific course
-        - DLXSolver needs to generate a mapping of each section to its respective course anyways, in order to generate constraints.
-    Disadvantage:
-        - Need to group output from DLXSolver into the mapping format. DLXSolver returns lists of independent CourseSelection[]
-            - In SetState, the new object must be a copy of the original. Copying dicts is difficult and we can consider using the "ReadOnly" library opensourced by facebook.
-        - Difficult to loop through each value into the mapping unless a separate list is maintained. Looping through each CourseSection[] is required to draw the tables.
-            - Can consider using Iterable, passed in to sched_disp which will use for(let..of) loop instead of length to iterate.
-    */
 }
 
 interface AppState {
@@ -50,15 +39,19 @@ interface AppState {
     cur_search_status: string;
 
     search_crs_list: Course[];
-    search_crs_solo_sections_map: Map<Course, Set<CourseSection>>,// a list of solo/exclude sections for all courses
-    search_crs_exclude_sections_map: Map<Course, Set<CourseSection>>,
-    // at any point, a course may not have the same course in both solo_sections and exclude_sections
+    search_crs_solo_sections_map: Map<Course, Set<CourseSection>>,// map from course to a set of solo/exclude sections for all courses
+    search_crs_exclude_sections_map: Map<Course, Set<CourseSection>>,// at any point, a course may not have the same course in both solo_sections and exclude_sections
+    search_crs_conflict_group_map: Map<Course, string>,
+
     search_crs_enabled: boolean[],
     search_crs_sections_filtermode: SectionFilterMode[],
 
     search_result: CourseSelection[][][];
     search_result_idx: number;
     search_result_limit: number;
+
+    setting_showLockExcludeBtn: boolean;
+
     /**
      * Array of selected indices for equivalent sections in the current search result.
      */
@@ -69,9 +62,12 @@ interface AppState {
 
 
 /**
- * Dec 27 todo:
+ * Jan 22 todo:
  * Priority 1
  * [ ] Show / highlight totally conflicting courses and show options for removing them
+ *          [X] Algorithm to calculate which pair of courses cannot be scheduled together
+ *              [ ] Optimize
+ *          [ ] Show courses that have absolutely no sections, and exclude them from search results.
  * [ ] Sched rank algorithm. sort the schedules by rank.
  *      possible heuristics:
  *          - Prefer shorter days
@@ -85,7 +81,7 @@ interface AppState {
  *              (can also be no more than 3 hours of lectures)
  *          - At least 1 hour between courses of different campus
  * [X] Toggle courses on/off
- *      [ ] do we auto refresh or not
+ *      [ ] Cache previous search indices
  * [X] save courses with cookies ploX
  * [X] "Block sections" by excluding them, or "Lock" a section.
  *      [X] locking down lecture sections doesn't also mean locking down tutorials or practicals - TEMP FIXED 
@@ -95,9 +91,10 @@ interface AppState {
  *      [ ] how to keep the same result while locked ? 
  * [ ] If error with added course (no meeting sections and whatnot) then display a warning.
  * [ ] Better displaying of currently selected campus(es)
- *       [ ] Show clear difference between StG and UTM courses.
+ *       [X] Show clear difference between StG and UTM courses.
  * [ ] Use immutable.js
  * [ ] Allow saving of schedules
+ * [ ] Allow for selection of sessions
  * 
  * Priority 2
  * [ ] Show hover effect when mouseover course list
@@ -113,10 +110,15 @@ interface AppState {
  * [ ] Refactor code to lift components
  * [ ] cache the "previous search index" for searches.
  *  * [ ] Cached data refreshing / transfer using gzip
+ * [ ] implement course exclusion (ie need to take CHM135, it's offered in both semesters, but only need to pick one semester.)
  * Priority 3
  * [ ] Async searches
  * [ ] Searches can auto skip to a predefined result.
  * [ ] !Find courses to fill empty slots.
+ * 
+ * Algorithmic improvement:
+ * [ ] Finding smaller exclusion matrices is the same as finding connected components, and for every connected component, we add a column and set all the rows for nodes in that component to 1.
+ * 
  * Oct 14 :
  * - Change timetable display to use position:absolute with nested div
  * - Add course selection button and made it its own component
@@ -171,7 +173,6 @@ interface AppState {
  *  - Ranking of solutions based on preference
  *  - Any other ideas welcome
  */
-
 interface AppCookie {
     crs_uids: string[];
     crs_solo_sections_obj: Object; // an object that maps the course's unique ID (string) to a list of its solo section IDs (string)
@@ -186,6 +187,7 @@ enum SectionFilterMode {
 
 class App extends React.Component<AppProps, AppState> {
     dropdownRef: React.RefObject<AutoComplete>;
+
     loadCookie(): AppCookie {
         if (document.cookie == null) return null;
         let foundCookies = document.cookie.split(";").filter(c => c.startsWith("data="));
@@ -231,8 +233,8 @@ class App extends React.Component<AppProps, AppState> {
             */
             let crsObjs: Course[] = [];
 
-            let soloSectionObjsMap: Map<Course, Set<CourseSection>> = new Map<Course, Set<CourseSection>>();
-            let excludeSectionObjsMap: Map<Course, Set<CourseSection>> = new Map<Course, Set<CourseSection>>();
+            let soloSectionObjsMap = new Map<Course, Set<CourseSection>>();
+            let excludeSectionObjsMap = new Map<Course, Set<CourseSection>>();
 
             loadedCookie.crs_uids.map((crs_uid, idx) => {
                 let crsObj = crsdb.get_crs_by_uid(crs_uid);
@@ -255,11 +257,14 @@ class App extends React.Component<AppProps, AppState> {
                 excludeSectionObjsMap.set(crsObj, excludeSectionObjs);
             });
 
+            let conflictGroupMap = new Map<Course, string>(); // maps from course to color. if a course is not in the map then it doesn't have a conflict gorup
+
             this.setState({
                 search_crs_list: crsObjs,
                 search_crs_solo_sections_map: soloSectionObjsMap,// a map of course object to the set of solo/exclude sections
                 search_crs_exclude_sections_map: excludeSectionObjsMap,
                 // at any point, a course may not have the same course in both solo_sections and exclude_sections
+                search_crs_conflict_group_map: conflictGroupMap,
                 search_crs_enabled: loadedCookie.crs_enabled,
                 search_crs_sections_filtermode: loadedCookie.crs_sections_filtermode
             });
@@ -320,7 +325,7 @@ class App extends React.Component<AppProps, AppState> {
             search_crs_list: [],
             search_crs_solo_sections_map: new Map<Course, Set<CourseSection>>(),
             search_crs_exclude_sections_map: new Map<Course, Set<CourseSection>>(),
-
+            search_crs_conflict_group_map: new Map<Course, string>(),
             // at any point, a course may not have the same course in both solo_sections and exclude_sections
             search_crs_enabled: [],
             search_crs_sections_filtermode: [],
@@ -331,6 +336,8 @@ class App extends React.Component<AppProps, AppState> {
             search_result_limit: 1000000,
 
             search_result_selections: [],
+
+            setting_showLockExcludeBtn: true,
 
             preload_crs_skeleton_linecount: 0
         }
@@ -375,15 +382,7 @@ class App extends React.Component<AppProps, AppState> {
         });
     }
 
-    crs_listAllSections(crs: Course): CourseSelection[] {
-        let output: CourseSelection[] = [];
-        Object.keys(crs.course_sections).forEach(sec_type => {
-            output.push(...crs.course_sections[sec_type].map<CourseSelection>((sec) => ({ crs: crs, sec: sec })));
-        });
-
-        return output;
-    }
-
+    conflict_color_list = ["#990000", "#009900", "#000099", "999900", "009999", "990099"];
     crs_addSearchCrs(crsObj: Course) {
         // if course is already in current list, then skip operation
         if (this.state.search_crs_list.findIndex(crs => crs.unique_id == crsObj.unique_id) != -1)
@@ -396,17 +395,26 @@ class App extends React.Component<AppProps, AppState> {
             enabled: true,
             sections_filtermode: SectionFilterMode.Exclude
         */
+        let new_crs_list = this.state.search_crs_list.concat(crsObj);
+
         let new_solo_map = new Map<Course, Set<CourseSection>>(this.state.search_crs_solo_sections_map);
         let new_exclusion_map = new Map<Course, Set<CourseSection>>(this.state.search_crs_exclude_sections_map);
         new_solo_map.set(crsObj, new Set<CourseSection>());
         new_exclusion_map.set(crsObj, new Set<CourseSection>());
+
+        let new_conflict_group_map = new Map<Course, string>();
+        crs_arrange.get_conflict_map(new_crs_list, new_solo_map, new_exclusion_map).forEach((val, key) => {
+            new_conflict_group_map.set(key, this.conflict_color_list[val % this.conflict_color_list.length]);
+        });
+
         this.setState({
             search_result: [],
 
-            search_crs_list: this.state.search_crs_list.concat(crsObj),
+            search_crs_list: new_crs_list,
             search_crs_enabled: this.state.search_crs_enabled.concat(true),
             search_crs_solo_sections_map: new_solo_map,
             search_crs_exclude_sections_map: new_exclusion_map,
+            search_crs_conflict_group_map: new_conflict_group_map,
             search_crs_sections_filtermode: this.state.search_crs_sections_filtermode.concat(SectionFilterMode.Exclude),
             cur_search_status: null,
         },
@@ -416,17 +424,28 @@ class App extends React.Component<AppProps, AppState> {
     crs_removeSearchCrs(crsObj: Course) {
         let removeIdx = this.state.search_crs_list.findIndex(crs => crs.unique_id == crsObj.unique_id);
         console.assert(removeIdx != -1);
+
+        let new_crs_list = this.state.search_crs_list.filter((crs, idx) => idx != removeIdx);
+
         let new_solo_map = new Map<Course, Set<CourseSection>>(this.state.search_crs_solo_sections_map);
         let new_exclusion_map = new Map<Course, Set<CourseSection>>(this.state.search_crs_exclude_sections_map);
         new_solo_map.delete(crsObj);
         new_exclusion_map.delete(crsObj);
+
+        let new_conflict_group_map = new Map<Course, string>();
+        crs_arrange.get_conflict_map(new_crs_list, new_solo_map, new_exclusion_map).forEach((val, key) => {
+            new_conflict_group_map.set(key, this.conflict_color_list[val % this.conflict_color_list.length]);
+        });
+        
         this.setState({
             search_result: [],
             cur_search_status: null,
-            search_crs_list: this.state.search_crs_list.filter((crs, idx) => idx != removeIdx),
+            search_crs_list: new_crs_list,
             search_crs_enabled: this.state.search_crs_enabled.filter((crs, idx) => idx != removeIdx),
             search_crs_solo_sections_map: new_solo_map,
             search_crs_exclude_sections_map: new_exclusion_map,
+
+            search_crs_conflict_group_map: new_conflict_group_map,
             search_crs_sections_filtermode: this.state.search_crs_sections_filtermode.filter((crs, idx) => idx != removeIdx),
         },
             this.saveData);
@@ -483,12 +502,13 @@ class App extends React.Component<AppProps, AppState> {
             return;
         }
 
+        // Apply filters to the course sections passed into search algorithm
         let all_sections: CourseSelection[] = [];
         this.state.search_crs_list.forEach((crs, idx) => {
             // assert searchCrs.exclude_sections intersect searchCrs.soloSections is empty.
             // A section may not be excluded and soloed at the same time.
             if (this.state.search_crs_enabled[idx]) {
-                let crs_sections = this.crs_listAllSections(crs);
+                let crs_sections = crsdb.list_all_crs_selections(crs);
                 // TODO: this is a temporary fix to allow for whitelist/blacklist of mixed sections.
                 // -> we will ignore the filter mode.
                 let sectypes = ["LEC", "TUT", "PRA"];
@@ -502,36 +522,16 @@ class App extends React.Component<AppProps, AppState> {
 
                         if (sections_t_whitelist.size == 0) { // no whitelisted sections of the type: then, check the blacklist
                             return !sections_t_blacklist.has(sel.sec);
-                        } else { // there are whitelisted sections of the type: then, check the whitelist
+                        } else { // there are whitelisted sections of the type: then, check the whitelist 
                             return sections_t_whitelist.has(sel.sec);
                         }
                     });
 
                     all_sections.push(...sections_t);
                 });
-
-                /* OLD IMPLEMENTATION
-                switch (this.state.search_crs_sections_filtermode[idx]) {
-                    case SectionFilterMode.Exclude:
-                        if (this.state.search_crs_exclude_sections_map.get(crs).size == crs_sections.length)
-                            console.error(`All sections for ${crs.course_code} are excluded.`);
-                        if (this.state.search_crs_exclude_sections_map.get(crs).size == 0)
-                            all_sections.push(...crs_sections);
-                        else
-                            all_sections.push(...(crs_sections.filter(crsSel => !this.state.search_crs_exclude_sections_map.get(crs).has(crsSel.sec))));
-                        break;
-                    case SectionFilterMode.Solo:
-                        if (this.state.search_crs_solo_sections_map.get(crs).size == 0)
-                            console.error(`An empty set of sections for ${crs.course_code} is soloed.`);
-                        all_sections.push(...(crs_sections.filter(crsSel => this.state.search_crs_solo_sections_map.get(crs).has(crsSel.sec))));
-                        break;
-                    default:
-                        console.log(`The course ${crs.course_code} has an invalid section filter mode.`);
-                        break;
-                }*/
-
             }
         });
+
         let search_result: SchedSearchResult = crs_arrange.find_sched(all_sections, this.state.search_result_limit);
         let search_status: string;
         if (search_result.solutionSet.length == 0) {
@@ -627,7 +627,9 @@ class App extends React.Component<AppProps, AppState> {
                             newSoloMap.set(crs, newSoloSet);
                             this.crs_updateSearchCrsFilterSections(crs, newSoloMap, this.state.search_crs_exclude_sections_map);
                         }}
-                    ><Icon type="lock" /> {sec.section_id}</div>)
+                    ><Icon type="lock" /> {sec.section_id}
+                        {/*<span style={{ backgroundColor: "#aaeeee", float: "right", marginRight:"25%" }}>Conflict</span> */}
+                    </div>)
                 });
 
                 let blockedSections = Array.from(this.state.search_crs_exclude_sections_map.get(crs).values()).map((sec: CourseSection) => {
@@ -639,8 +641,14 @@ class App extends React.Component<AppProps, AppState> {
                             newExcludeMap.set(crs, newExcludeSet);
                             this.crs_updateSearchCrsFilterSections(crs, this.state.search_crs_solo_sections_map, newExcludeMap);
                         }}
-                    ><Icon type="minus-circle" theme="filled" /> {sec.section_id}</div>)
+                    ><Icon type="minus-circle" theme="filled" /> {sec.section_id}
+                        {/* <span style={{ backgroundColor: "#aaeeee", float: "right", marginRight:"25%" }}>Conflict</span> */}
+                    </div>
+                    )
                 });
+                let conflictMarker = this.state.search_crs_conflict_group_map.has(crs)
+                    ? (<span style={{ backgroundColor: this.state.search_crs_conflict_group_map.get(crs) }}>Conflict</span>)
+                    : (<span style={{ }}>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>);
 
                 return (
                     <div key={crs.course_code} className="crs-bucket-item">
@@ -651,10 +659,13 @@ class App extends React.Component<AppProps, AppState> {
                                     onChange={() => {
                                         this.crs_toggleCrsIndex(idx);
                                     }}
-                                    style={{ width: "85%" }}
+                                    style={{ width: "60%" }}
                                 >
                                     {`[${Campus_Formatted[crs.campus]}] `}{crs.course_code}
                                 </Checkbox>
+
+                                {conflictMarker}
+
                                 <Icon type="close"
                                     onClick={() => {
                                         this.crs_removeSearchCrs(crs);
@@ -707,14 +718,16 @@ class App extends React.Component<AppProps, AppState> {
                         <Collapse.Panel header="Courses list" key="1" disabled showArrow={true} extra={
                             <SettingsButton
                                 currentSettings={{
-                                    selectedCampus: this.state.cur_campus_set
+                                    selectedCampus: this.state.cur_campus_set,
+                                    showLockExcludeBtn: this.state.setting_showLockExcludeBtn
                                 }}
                                 onSettingsModified={(newSettings) => {
-                                    this.setState({ cur_campus_set: newSettings.selectedCampus });
-                                    // message.info("Changes saved.");
+                                    this.setState({
+                                        cur_campus_set: newSettings.selectedCampus,
+                                        setting_showLockExcludeBtn: newSettings.showLockExcludeBtn
+                                    });
                                 }}
                                 onSettingsCancelled={() => {
-                                    // message.info("Changes are not saved.");
                                 }}
                             />
                         }>
@@ -837,6 +850,8 @@ class App extends React.Component<AppProps, AppState> {
                                 crs_solo_sections_map={this.state.search_crs_solo_sections_map} crs_exclude_sections_map={this.state.search_crs_exclude_sections_map}
                                 onSelectionIndicesChanged={this.handleSelectionIndicesChanged}
                                 onCrsFilterSectionsChanged={this.crs_updateSearchCrsFilterSections}
+
+                                showLockExcludeBtns={this.state.setting_showLockExcludeBtn}
                             />
                         </Tabs.TabPane>
                         <Tabs.TabPane tab="Winter" key="S">
@@ -844,6 +859,8 @@ class App extends React.Component<AppProps, AppState> {
                                 crs_solo_sections_map={this.state.search_crs_solo_sections_map} crs_exclude_sections_map={this.state.search_crs_exclude_sections_map}
                                 onSelectionIndicesChanged={this.handleSelectionIndicesChanged}
                                 onCrsFilterSectionsChanged={this.crs_updateSearchCrsFilterSections}
+
+                                showLockExcludeBtns={this.state.setting_showLockExcludeBtn}
                             />
                         </Tabs.TabPane>
                         <Tabs.TabPane tab="Both" key="Y">
@@ -851,6 +868,8 @@ class App extends React.Component<AppProps, AppState> {
                                 crs_solo_sections_map={this.state.search_crs_solo_sections_map} crs_exclude_sections_map={this.state.search_crs_exclude_sections_map}
                                 onSelectionIndicesChanged={this.handleSelectionIndicesChanged}
                                 onCrsFilterSectionsChanged={this.crs_updateSearchCrsFilterSections}
+
+                                showLockExcludeBtns={this.state.setting_showLockExcludeBtn}
                             />
                         </Tabs.TabPane>
                     </Tabs>

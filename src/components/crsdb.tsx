@@ -99,7 +99,7 @@ export class crsdb {
         else return crs_list.filter((x: Course) => x.course_code.toUpperCase().startsWith(crs_code));
     }
 
-    static get_crs_by_uid(unique_id:string){
+    static get_crs_by_uid(unique_id: string) {
         if (!(unique_id in crsdb.crs_unique_id_map)) {
             console.error("get_crs_selections_by_id: course unique id not found: " + unique_id);
             return null;
@@ -111,7 +111,7 @@ export class crsdb {
         return crsdb.get_crs_selections(crsdb.get_crs_by_uid(unique_id), section_ids);
     }
 
-    static get_crs_section_by_id(crs :Course, section_id:string){
+    static get_crs_section_by_id(crs: Course, section_id: string) {
         let secType = section_id.substr(0, 3);
         let sec: CourseSection = crs.course_sections[secType].find(x => x.section_id == section_id);
         return sec;
@@ -129,7 +129,7 @@ export class crsdb {
         let satisfy_sections = new Set<string>(Object.keys(crs.course_sections)); // list of sectypes to satisfy
         section_ids.forEach((secId) => {
             let secType = secId.substr(0, 3);
-            
+
             let sec = crsdb.get_crs_section_by_id(crs, secId);
             if (sec == null) {
                 throw `Could not find section: ${secId} in ${crs.course_code}`;
@@ -138,7 +138,7 @@ export class crsdb {
             if (!satisfy_sections.has(secType)) {
                 throw `Invalid combination of sections selected: type not found, or duplicate section selected: ${secId} in ${crs.course_code}`;
             }
-            
+
             output.push(
                 {
                     crs: crs,
@@ -166,6 +166,15 @@ export class crsdb {
         let result = crsdb.list_crs_by_code(campus, session, crs_code);
         if (result.length != 1) return null;
         return result[0];
+    }
+
+    static list_all_crs_selections(crs: Course): CourseSelection[] {
+        let output: CourseSelection[] = [];
+        Object.keys(crs.course_sections).forEach(sec_type => {
+            output.push(...crs.course_sections[sec_type].map<CourseSelection>((sec) => ({ crs: crs, sec: sec })));
+        });
+
+        return output;
     }
 
     // TODO: search crs functionality. - possibly for multiple courses

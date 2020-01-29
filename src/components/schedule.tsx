@@ -28,6 +28,8 @@ export class crs_arrange {
     constructor(params) {
 
     }
+
+
     public static is_equiv_section(secA: CourseSelection, secB: CourseSelection): boolean {
         /**
          * Two sections are equivalent if:
@@ -46,7 +48,78 @@ export class crs_arrange {
         }
     }
 
-    // TODO: implement course exclusion (ie need to take CHM135, it's offered in both semesters, but only need to pick one semester.)
+
+
+    // Return true if it's impossible to schedule the two courses together at all.
+    public static is_total_conflict(crsA: Course, crsB: Course): boolean {//TODO
+        let selA = crsdb.list_all_crs_selections(crsA);
+        let selB = crsdb.list_all_crs_selections(crsB);
+
+        // Currently, we run the arrangement algorithm with all of the course's sections
+        let xx = crs_arrange.find_sched(selA.concat(selB), 1).solutionSet;
+        return xx.length == 0;
+    }
+
+    static demarcate_component<T extends { edges: T[], mark: V }, V>(node: T, targetMark: V) {//TODO
+        let nodes_remain: T[] = [];
+        nodes_remain.push(node);
+
+        let iter_limit = 5000;
+
+        while (nodes_remain.length > 0 && iter_limit-- > 0) {
+            let node_cur = nodes_remain.pop();
+            if (node_cur.mark != targetMark) {
+                node_cur.mark = targetMark;
+
+                nodes_remain.push(...node_cur.edges.filter(n => n.mark != targetMark));
+            }
+        }
+
+        if (nodes_remain.length > 0)
+            console.error(`demarcate_component: traversal limit of ${iter_limit} exceeded`);
+    }
+
+    public static get_conflict_map(crs_list: Course[], whitelisted_sections: Map<Course, Set<CourseSection>>, blacklisted_sections: Map<Course, Set<CourseSection>>): Map<Course, number> {
+        // TEMP DISABLE DUE TO PERFORMANCE
+        return new Map<Course, number>();
+
+        // Generate the nodes in the graph
+        let linkmap = crs_list.map(crsObj => ({ crs: crsObj, edges: [], mark: -1 }));
+
+        // Compute the edges in the graph
+        for (let idxA = 0; idxA < linkmap.length - 1; idxA++) {
+            const nodeA = linkmap[idxA];
+            for (let idxB = idxA + 1; idxB < linkmap.length; idxB++) {
+                const nodeB = linkmap[idxB];
+
+                if (this.is_total_conflict(linkmap[idxA].crs, linkmap[idxB].crs)) {
+                    nodeA.edges.push(nodeB);
+                    nodeB.edges.push(nodeA);
+                }
+            }
+        }
+
+        // Demarcate the nodes in the components
+        let componentID = 0;
+        for (let index = 0; index < crs_list.length; index++) {
+            let node = linkmap[index];
+
+            // if a node has no children: it is not a part of any component.
+            // otherwise, if the node hasn't already been marked: mark the node, along with all of its children, to a component id.
+            if (node.edges.length > 0 && node.mark == -1) {
+                this.demarcate_component(node, componentID);
+                componentID += 1;
+            }
+        }
+
+        // Iterate through the graph again and create a dictionary that maps node to an id representing which component they are in.
+        let result = new Map<Course, number>();
+        linkmap.forEach(node => {
+            if (node.mark != -1)
+                result.set(node.crs, node.mark)
+        });
+        return result;
+    }
     public static find_sched(crs_list: CourseSelection[], solution_limit: number): SchedSearchResult {
         // For courses that have no timeslots or are closed, we skip feeding them into the algorithm.
         crs_list = crs_list.filter(crs_sel => crsdb.is_section_open(crs_sel.sec) && crs_sel.sec.timeslots.length > 0);
@@ -102,8 +175,8 @@ export class crs_arrange {
             section_groups[sec_grp_idx].push(crs_sel);
         });
 
-        console.log(JSON.parse(JSON.stringify((section_groups))));
-        
+        // console.log(JSON.parse(JSON.stringify((section_groups))));
+
         // Grouped sections based on if they are equivalent
         // [[SecA], [SecB, SecC]]
         let grouped_equiv_sections: CourseSelection[][] = [];
@@ -130,36 +203,10 @@ export class crs_arrange {
             }
             grouped_equiv_sections.push(...cur_equiv_grps);
         });
-        
-        /* // Calculate the exclusion matrix
-        for (let idx1 = 0; idx1 < grouped_equiv_sections.length; idx1++) {
-            for (let idx2 = idx1 + 1; idx2 < grouped_equiv_sections.length; idx2++) {
-                // pick the first section from each group of equivalence
-                let crsSelA = grouped_equiv_sections[idx1][0];
-                let crsSelB = grouped_equiv_sections[idx2][0];
 
-                // If two courses are in different sections, then don't check conflicts.
-                // Assume that yearly courses will happen at the same times on both fall and winter semesters.
-                if (crsSelA.crs.term != 'Y' && crsSelB.crs.term != 'Y') {
-                    if (crsSelA.crs.term != crsSelB.crs.term) {
-                        continue;
-                    }
-                }
+        // console.log(section_groups);
 
-                let ts1: Timeslot[] = crsSelA.sec.timeslots;
-                let ts2: Timeslot[] = crsSelB.sec.timeslots;
-
-                if (crsdb.is_timeslots_conflict(ts1, ts2)) {
-                    data[idx1][n_primary_cols + n_exclusions] = 1;
-                    data[idx2][n_primary_cols + n_exclusions] = 1;
-                    n_exclusions += 1;
-                }
-            }
-        }
-        */
-        console.log(section_groups);
-
-        console.log(grouped_equiv_sections);
+        // console.log(grouped_equiv_sections);
 
         // Construct DLX Matrix
         let n_primary_cols = column_id;
