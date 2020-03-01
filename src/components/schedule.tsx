@@ -120,7 +120,7 @@ export class crs_arrange {
         });
         return result;
     }
-    public static find_sched(crs_list: CourseSelection[], solution_limit: number): SchedSearchResult {
+    public static find_sched(crs_list: CourseSelection[], solution_limit: number, sched_rank_method: ): SchedSearchResult {
         // For courses that have no timeslots or are closed, we skip feeding them into the algorithm.
         crs_list = crs_list.filter(crs_sel => crsdb.is_section_open(crs_sel.sec) && crs_sel.sec.timeslots.length > 0);
 
