@@ -29,6 +29,7 @@ export class DLXMatrix<RowType> {
         this.solutionLimit = solution_limit;
     }
 
+
     solutionLimit: number = -1;
     solutionLimitReached: boolean = false;
     solutionSet: Array<{ data: Array<RowType>, score: number }> = new Array<{ data: Array<RowType>, score: number }>();
@@ -36,6 +37,8 @@ export class DLXMatrix<RowType> {
 
     maxScoreValue: number = -Infinity;
     maxScoreObj: Array<RowType> = null;
+    solutionCount: number = 0;
+
     /**
      * Solves the current dlx matrix.
      * 
@@ -50,6 +53,8 @@ export class DLXMatrix<RowType> {
         this.maxScoreValue = -Infinity;
         this.maxScoreObj = null;
 
+        this.solutionCount = 0;
+
         this.SolveR(0, ranking_method, top_n);
 
         return this.solutionSet.map(x => {
@@ -59,30 +64,31 @@ export class DLXMatrix<RowType> {
 
     private SolveR(depth: number, ranking_method?: (sol: Array<RowType>) => number, top_n?: number): void {
         // check if the current limit of solutions has been reached
-        if (this.solutionLimit > 0 && this.solutionSet.length >= this.solutionLimit) {
+        if (this.solutionLimit > 0 && this.solutionCount >= this.solutionLimit) {
             this.solutionLimitReached = true;
             return;
         }
 
         // check if there is a column (constraint) to satisfy.
         if (this.root.right === this.root) {
-            // a solution has been found. rank it and pick the top n to include in the solution set if needed
+            // a solution has been found.
+            this.solutionCount += 1;
+
+            //rank it and pick the top n to include in the solution set if needed
             if (ranking_method != null) {
                 let rank_score = ranking_method(this.curSol);
 
-                // update the maxScore
-                if(rank_score > this.maxScoreValue) {
+                // if there is a new max scoring item, add it to the current solution set
+                if (rank_score > this.maxScoreValue) {
                     this.maxScoreValue = rank_score;
                     this.maxScoreObj = this.curSol;
-                }
-
-                // update the top_n
-                if (top_n != null) {
-                    if (this.solutionSet.length < top_n) {
-                        
-                    }
-                } else {
                     this.solutionSet.push({ data: this.curSol.slice(), score: rank_score });
+                }
+                // if the solution set exceeds the limit, then trim it
+                if (top_n != null && this.solutionSet.length >= top_n) {
+                    // sort the list descendingly and remove the last element
+                    this.solutionSet.sort((a, b) => b.score - a.score);
+                    this.solutionSet.splice(this.solutionSet.length-1)
                 }
             } else {
                 // slice deepcopies array
