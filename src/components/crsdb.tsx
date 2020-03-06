@@ -94,7 +94,7 @@ export class crsdb {
             crsdb.crs_store_prefix[campus][session] &&
             crsdb.crs_store_prefix[campus][session][crs_code[0]] &&
             crsdb.crs_store_prefix[campus][session][crs_code[0]][crs_code[1]] &&
-            crsdb.crs_store_prefix[campus][session][crs_code[0]][crs_code[1]][crs_code[2]]; // https://medium.com/javascript-inside/safely-accessing-deeply-nested-values-in-javascript-99bf72a0855a
+            crsdb.crs_store_prefix[campus][session][crs_code[0]][crs_code[1]][crs_code[2]];
         if (!crs_list) return [];
         else return crs_list.filter((x: Course) => x.course_code.toUpperCase().startsWith(crs_code));
     }
@@ -230,10 +230,45 @@ export class crsdb {
         return false;
     }
 
-
-
     static is_section_open(sec: CourseSection) {
         return !sec.notes.includes("Closed") && !sec.notes.includes("Cancelled") && sec.timeslots.length > 0;
+    }
+
+    static session_format(session: string): string {
+        console.assert(session.length == 5, "The session is of the wrong length.");
+        let year = parseInt(session.substr(0, 4));
+        let term = session[4]; // '9' means {year} fall to {year+1} winter
+
+        if (term == '5') {
+            return `${year} Summer`;
+        } else if (term == '9') {
+            return `${year} Fall - ${year + 1} Winter`;
+        } else {
+            console.error(`Invalid term code in ${session}`);
+            return ``;
+        }
+    }
+
+    /**
+     * Returns a list of available sessions.
+     * 
+     * Return the current session, and next session.
+     * */
+    static session_list(): string[] {
+        let dmx = new Date();
+        let curYear = dmx.getFullYear();
+        let curMonth = dmx.getMonth();
+
+        if (curMonth >= 9) {
+            // if after september of year X, then return the fall-winter semester of year X, and the summer semester of year X+1
+            return [`${curYear}5`, `${curYear + 1}9`]; // return in order: current, next
+        } else if (curMonth >= 5) {
+            // if during summer of year X, then return the summer semester of year X, along with the fall-winter semester of year X
+            return [`${curYear}5`, `${curYear}9`];
+        } else {
+            // if before summer of year X, then return the fall-winter semester of year X-1, alond with the summer semester of year X
+            return [`${curYear - 1}9`, `${curYear}5`];
+        }
     }
 
     static get_crs_all(campus, session, pred: (Course) => boolean): Course[] {

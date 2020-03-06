@@ -20,3 +20,7 @@ inspirations
 *.pyc
 backup_old_algo/index.html
 tt-html.code-workspace
+src/components/sched_disp_td_layout.tsx
+src/components/sched_disp_noconflictsupport.tsx
+src/model_plan.txt
+src/test_crsdisp.txt

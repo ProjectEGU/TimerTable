@@ -1,5 +1,5 @@
 import { Course, CourseSelection, CourseSection, Timeslot } from "./course";
-import { DLXMatrix } from "./dlxmatrix"
+import { DLXMatrix, Solution as DLXSolution } from "./dlxmatrix"
 import { string } from "prop-types";
 import { AssertionError } from "assert";
 import { crsdb } from "./crsdb";
@@ -20,7 +20,7 @@ export interface SchedSearchResult {
     * SectionA is the only option for that section
     * SectionB, SectionC are alternatives for the same section.
     * */
-    solutionSet: CourseSelection[][][],
+    solutionSet: DLXSolution<CourseSelection[]>[],
     solutionLimitReached: boolean
 }
 
@@ -79,7 +79,10 @@ export class crs_arrange {
             console.error(`demarcate_component: traversal limit of ${iter_limit} exceeded`);
     }
 
-    public static get_conflict_map(crs_list: Course[], whitelisted_sections: Map<Course, Set<CourseSection>>, blacklisted_sections: Map<Course, Set<CourseSection>>): Map<Course, number> {
+    public static get_conflict_map(
+        crs_list: Course[],
+        whitelisted_sections: Map<Course, Set<CourseSection>>,
+        blacklisted_sections: Map<Course, Set<CourseSection>>): Map<Course, number> {
         // TEMP DISABLE DUE TO PERFORMANCE
         return new Map<Course, number>();
 
@@ -120,7 +123,8 @@ export class crs_arrange {
         });
         return result;
     }
-    public static find_sched(crs_list: CourseSelection[], solution_limit: number, sched_rank_method: ): SchedSearchResult {
+    public static find_sched(crs_list: CourseSelection[], solution_limit: number,
+        sched_rank_method?: (crs_sel_grps: CourseSelection[][]) => number): SchedSearchResult {
         // For courses that have no timeslots or are closed, we skip feeding them into the algorithm.
         crs_list = crs_list.filter(crs_sel => crsdb.is_section_open(crs_sel.sec) && crs_sel.sec.timeslots.length > 0);
 
@@ -263,7 +267,7 @@ export class crs_arrange {
             = DLXMatrix.Initialize<CourseSelection[]>(n_rows, n_cols, grouped_equiv_sections, data, n_primary_cols);
 
         mat.SetSolutionLimit(solution_limit);
-        mat.Solve();
+        mat.Solve(sched_rank_method);
 
         // Interpret the results
         return { solutionSet: mat.solutionSet, solutionLimitReached: mat.solutionLimitReached };

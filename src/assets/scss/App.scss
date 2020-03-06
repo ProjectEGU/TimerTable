@@ -37,6 +37,26 @@ body {
   user-select: none;
 }
 
+.ant-tabs-extra-content {
+  float: left !important;
+  -moz-user-select: none;
+  -webkit-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  cursor: pointer;
+  padding-left: 15px;
+
+  p {
+    font-weight:bold;
+    // text-decoration-line: underline;
+    color: #7e7e7e;
+  }
+  p:hover {
+    text-decoration-line: underline;
+    color: #40a9ff;
+  }
+}
+
 .ant-select-dropdown-menu {
   // max-height: 500px;
 
@@ -68,11 +88,13 @@ body {
 .crs-bucket-item:hover {
   background-color: #DEDEDE;
 }
+
 .filtered-section-soloed:hover {
   background-color: rgb(250, 152, 152);
 }
+
 .filtered-section-excluded:hover {
-  background-color:rgb(250, 152, 152);
+  background-color: rgb(250, 152, 152);
 }
 
 @media screen and (max-width: 700px) {

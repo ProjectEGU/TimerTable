@@ -1,4 +1,5 @@
 
+export type Solution<RowType> = { data: Array<RowType>, score: number }
 
 
 export class DLXMatrix<RowType> {
@@ -32,7 +33,7 @@ export class DLXMatrix<RowType> {
 
     solutionLimit: number = -1;
     solutionLimitReached: boolean = false;
-    solutionSet: Array<{ data: Array<RowType>, score: number }> = new Array<{ data: Array<RowType>, score: number }>();
+    solutionSet: Array<Solution<RowType>> = new Array<Solution<RowType>>();
     curSol: Array<RowType> = new Array<RowType>();
 
     maxScoreValue: number = -Infinity;
@@ -45,7 +46,7 @@ export class DLXMatrix<RowType> {
      * The output is a list of solutions. 
      * Each solution is another list of row info objects, originally passed in via the 'rowInfo' param of the Initialize function.
      */
-    public Solve(ranking_method?: (sol: Array<RowType>) => number, top_n?: number): Array<{ data: Array<RowType>, score: number }> {
+    public Solve(ranking_method?: (sol: Array<RowType>) => number, top_n?: number): Array<Solution<RowType>> {
         this.solutionSet = [];
         this.curSol = [];
         this.solutionLimitReached = false;
