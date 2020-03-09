@@ -5,18 +5,19 @@ import { AssertionError } from "assert";
 import { crsdb } from "./crsdb";
 import { Icon, Button, Popover, Select } from 'antd';
 import { AlternateSectionButton } from "./alt_sect_btn";
+import { view } from "react-easy-state";
 
 interface SchedDispProps {
     show_term: string,
     crs_selections_groups: CourseSelection[][],
     crs_selections_indices: number[],
 
-    crs_solo_sections_map?: Map<Course, Set<CourseSection>>, // A map of course to solo sections. The keys are stored as pointers to the course objects provided in crs_selection_groups.
-    crs_exclude_sections_map?: Map<Course, Set<CourseSection>>, // A map of course toexcluded sections. The keys are stored as pointers to the course objects provided in crs_selection_groups.
+    crs_solo_sections_map?: Map<string, Set<string>>, // A map of course unique id to a set of solo section ids.
+    crs_exclude_sections_map?: Map<string, Set<string>>, // A map of course unique id to a set of exclude section ids.
 
 
     // A callback function when solo sections / exclude sections are added or removed. If this method is not null, then crs_solo_sections and crs_exclude_sections must also not be null.
-    onCrsFilterSectionsChanged?: (targetCrsObj: Course, new_solo_sections: Map<Course, Set<CourseSection>>, new_exclude_sections: Map<Course, Set<CourseSection>>) => void,
+    onCrsFilterSectionsChanged?: (targetCrsObj: Course, new_solo_sections: Map<string, Set<string>>, new_exclude_sections: Map<string, Set<string>>) => void,
 
     loading?: boolean,// show when crs data is being loaded
     next_selection?: CourseSelection, // shows a course pending to be added (such as during mouseover of a button for selection)
@@ -53,10 +54,11 @@ interface crs_tslot // represents a single timeslot of a course selection
     selected: boolean,
     equiv_alternate_sections: CourseSelection[]
 }
+
 /**
  * TODO: Display different colors for course sections with waitlist or already filled.
  */
-export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
+class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
 
     static defaultProps = {
         startTime: [9, 0],
@@ -296,19 +298,6 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
                             </td>
                         );
                     } else {
-                        // we define callback as arrow function within the property directly
-                        // because arrow functions are re-created, it may cause rerendering of React Components
-                        // in this case, these are direct DOM components which will not be rerendered by change in callbackfn
-                        // TODO: consider abstracting this part to a function
-                        // TODO: improve tooltip methodology
-
-                        // TODO: alternate methodology to update cells highlights without re-render of entire timetable:
-                        // create each cell as its own component
-                        // create map of cell refs in this format: CourseSection -> CellRef[] mapping.
-                        // then, make the onMouseOver and onMouseLeave events call an alternate hover/leave (that does not propagate) for each of the refs
-
-                        // alternate #2: have all cell displays as part of a separate absolutely positioned div element
-                        // then, in that absolutely positioned div element, all mouseover events can be efficiently handled.
 
                         let lockExcludeBtns = (<ul style={{
                             listStyleType: "none",
@@ -325,17 +314,17 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
                                     if (this.props.onCrsFilterSectionsChanged != null) {
 
                                         // Do not allow excluding a section that is in the whitelist
-                                        if (this.props.crs_solo_sections_map.get(place_ct.crs_sel.crs).has(place_ct.crs_sel.sec)) return;
+                                        if (this.props.crs_solo_sections_map.get(place_ct.crs_sel.crs.unique_id).has(place_ct.crs_sel.sec.section_id)) return;
                                         // Cross button clicked
-                                        let new_exclude_sections_map = new Map<Course, Set<CourseSection>>(this.props.crs_exclude_sections_map);
-                                        let new_exclude_set = new Set<CourseSection>(new_exclude_sections_map.get(place_ct.crs_sel.crs));
+                                        let new_exclude_sections_map = new Map<string, Set<string>>(this.props.crs_exclude_sections_map);
+                                        let new_exclude_set = new Set<string>(new_exclude_sections_map.get(place_ct.crs_sel.crs.unique_id));
 
                                         // assert that the section clicked is not a part of blacklisted sections
-                                        console.assert(!new_exclude_set.has(place_ct.crs_sel.sec));
+                                        console.assert(!new_exclude_set.has(place_ct.crs_sel.sec.section_id));
                                         // add all the equivalent sections to the blacklist
-                                        place_ct.equiv_alternate_sections.forEach(sel => new_exclude_set.add(sel.sec));
-                                        new_exclude_set.add(place_ct.crs_sel.sec);
-                                        new_exclude_sections_map.set(place_ct.crs_sel.crs, new_exclude_set);
+                                        place_ct.equiv_alternate_sections.forEach(sel => new_exclude_set.add(sel.sec.section_id));
+                                        new_exclude_set.add(place_ct.crs_sel.sec.section_id);
+                                        new_exclude_sections_map.set(place_ct.crs_sel.crs.unique_id, new_exclude_set);
 
                                         this.props.onCrsFilterSectionsChanged(
                                             place_ct.crs_sel.crs,
@@ -346,8 +335,8 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
                             >
                                 <Icon className={
                                     this.props.crs_exclude_sections_map != null
-                                        ? (this.props.crs_exclude_sections_map.get(place_ct.crs_sel.crs).has(place_ct.crs_sel.sec) ? "adjButtonActive" :
-                                            (this.props.crs_solo_sections_map.get(place_ct.crs_sel.crs).has(place_ct.crs_sel.sec) ? "adjButtonLocked" : "adjButton"))
+                                        ? (this.props.crs_exclude_sections_map.get(place_ct.crs_sel.crs.unique_id).has(place_ct.crs_sel.sec.section_id) ? "adjButtonActive" :
+                                            (this.props.crs_solo_sections_map.get(place_ct.crs_sel.crs.unique_id).has(place_ct.crs_sel.sec.section_id) ? "adjButtonLocked" : "adjButton"))
                                         : "adjButton"
                                 } type="close-square" theme="filled"
                                     style={{ display: "block", padding: "5px 5px 3px 5px", margin: "2px 0px 5px 0px" }} />
@@ -357,21 +346,21 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
                                 onClick={() => {
                                     if (this.props.onCrsFilterSectionsChanged != null) {
                                         // Lock button clicked
-                                        let new_solo_sections_map = new Map<Course, Set<CourseSection>>(this.props.crs_solo_sections_map);
-                                        let new_solo_set = new Set<CourseSection>(new_solo_sections_map.get(place_ct.crs_sel.crs));
+                                        let new_solo_sections_map = new Map<string, Set<string>>(this.props.crs_solo_sections_map);
+                                        let new_solo_set = new Set<string>(new_solo_sections_map.get(place_ct.crs_sel.crs.unique_id));
 
                                         // check if the section clicked is a whitelisted section: if it is, then remove from whitelist.
-                                        if (new_solo_set.has(place_ct.crs_sel.sec)) {
+                                        if (new_solo_set.has(place_ct.crs_sel.sec.section_id)) {
                                             // remove this section and all equivalent sections from whitelist
-                                            place_ct.equiv_alternate_sections.forEach(sel => new_solo_set.delete(sel.sec));
-                                            new_solo_set.delete(place_ct.crs_sel.sec);
+                                            place_ct.equiv_alternate_sections.forEach(sel => new_solo_set.delete(sel.sec.section_id));
+                                            new_solo_set.delete(place_ct.crs_sel.sec.section_id);
                                         } else {
                                             // add all equivalent sections to the whitelist too
-                                            place_ct.equiv_alternate_sections.forEach(sel => new_solo_set.add(sel.sec));
-                                            new_solo_set.add(place_ct.crs_sel.sec);
+                                            place_ct.equiv_alternate_sections.forEach(sel => new_solo_set.add(sel.sec.section_id));
+                                            new_solo_set.add(place_ct.crs_sel.sec.section_id);
                                         }
 
-                                        new_solo_sections_map.set(place_ct.crs_sel.crs, new_solo_set);
+                                        new_solo_sections_map.set(place_ct.crs_sel.crs.unique_id, new_solo_set);
                                         this.props.onCrsFilterSectionsChanged(
                                             place_ct.crs_sel.crs,
                                             new_solo_sections_map,
@@ -381,7 +370,7 @@ export class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
                             >
                                 <Icon className={
                                     this.props.crs_solo_sections_map != null
-                                        ? (this.props.crs_solo_sections_map.get(place_ct.crs_sel.crs).has(place_ct.crs_sel.sec) ? "adjButtonActive" : "adjButton")
+                                        ? (this.props.crs_solo_sections_map.get(place_ct.crs_sel.crs.unique_id).has(place_ct.crs_sel.sec.section_id) ? "adjButtonActive" : "adjButton")
                                         : "adjButton"
                                 } type="lock" theme="filled"
                                     style={
@@ -523,3 +512,4 @@ ${place_ct.crs_sel.sec.instructors}`
     }
 }
 
+export default view(SchedDisp);

@@ -65,6 +65,7 @@
     "webpack-merge": "^4.2.2"
   },
   "dependencies": {
-    "antd": "^3.26.12"
+    "antd": "^3.26.13",
+    "react-easy-state": "^6.1.3"
   }
 }

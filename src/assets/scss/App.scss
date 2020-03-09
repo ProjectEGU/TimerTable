@@ -85,6 +85,10 @@ body {
   overflow: hidden;
 }
 
+.ant-collapse .ant-collapse-item-disabled > .ant-collapse-header {
+  cursor: initial !important;
+}
+
 .crs-bucket-item:hover {
   background-color: #DEDEDE;
 }
@@ -96,7 +100,6 @@ body {
 .filtered-section-excluded:hover {
   background-color: rgb(250, 152, 152);
 }
-
 @media screen and (max-width: 700px) {
   .tt-tabs {
     float: left;

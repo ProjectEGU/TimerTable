@@ -81,10 +81,10 @@ export class crs_arrange {
 
     public static get_conflict_map(
         crs_list: Course[],
-        whitelisted_sections: Map<Course, Set<CourseSection>>,
-        blacklisted_sections: Map<Course, Set<CourseSection>>): Map<Course, number> {
+        whitelisted_sections: Map<string, Set<string>>,
+        blacklisted_sections: Map<string, Set<string>>): Map<string, number> {
         // TEMP DISABLE DUE TO PERFORMANCE
-        return new Map<Course, number>();
+        return new Map<string, number>();
 
         // Generate the nodes in the graph
         let linkmap = crs_list.map(crsObj => ({ crs: crsObj, edges: [], mark: -1 }));
@@ -121,7 +121,7 @@ export class crs_arrange {
             if (node.mark != -1)
                 result.set(node.crs, node.mark)
         });
-        return result;
+        // return result;
     }
     public static find_sched(crs_list: CourseSelection[], solution_limit: number,
         sched_rank_method?: (crs_sel_grps: CourseSelection[][]) => number): SchedSearchResult {

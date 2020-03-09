@@ -7,15 +7,17 @@ import 'antd/dist/antd.css';
 import { Solution as DLXSolution } from "./dlxmatrix"
 import { crsdb, Campus, Campus_Formatted } from "./crsdb"
 import { Course, CourseSection, CourseSectionsDict, Timeslot, CourseSelection } from "./course"
-import { SchedDisp } from "./sched_disp";
+import SchedDisp from "./sched_disp";
 import { AutoComplete, Button, Card, Tabs, Icon, Input, Badge, Collapse, Pagination, Popover, Checkbox, message, Skeleton, Menu, Dropdown } from 'antd';
 import { AutoCompleteProps } from "antd/lib/auto-complete";
 import { AssertionError } from "assert";
 import { crs_arrange, SchedSearchResult } from "./schedule";
 import { SettingsButton } from "./settings_button";
-import { Tagged } from "./mutation_tagger";
 
+import { view, store } from "react-easy-state";
 
+import { SearchInput, SectionFilterMode, crsSearchStoreFormat } from "./crsSearchStore";
+import crsSearchStore from "./crsSearchStore";
 
 /**
  * Jan 22 todo:
@@ -130,21 +132,7 @@ interface AppProps {
 
 }
 
-interface CrsState {
-    crs_obj_list: Course[];
-    crs_sections: CourseSelection[];
-}
 
-interface SearchInput {
-    search_crs_list: Course[];
-    search_crs_solo_sections_map: Map<Course, Set<CourseSection>>,// map from course to a set of solo/exclude sections for all courses
-    search_crs_exclude_sections_map: Map<Course, Set<CourseSection>>,// at any point, the same course may not be in both solo_sections and exclude_sections
-    search_crs_conflict_group_map: Map<Course, string>,
-    search_result_selections: number[]; // Array of selected indices for equivalent sections in the current search result.
-
-    search_crs_enabled: boolean[],
-    search_crs_sections_filtermode: SectionFilterMode[],
-}
 
 interface AppState {
     data_loaded: boolean;
@@ -157,11 +145,7 @@ interface AppState {
 
     crs_search_str: string;
     crs_search_dropdown_open: boolean;
-    cur_campus_set: Set<Campus>;
-    cur_session: string;
     cur_search_status: string;
-
-    search_inputs_tbl: Tagged<Map<string, SearchInput>>;
 
     search_result: DLXSolution<CourseSelection[]>[];
     search_result_idx: number;
@@ -186,14 +170,9 @@ interface AppCookie {
     selected_session: string;
 }
 
-enum SectionFilterMode {
-    Solo, // indicates that solely those sections are to be included when searching.
-    Exclude // indicates that those sections are to be excluded when searching.
-}
 
 class App extends React.Component<AppProps, AppState> {
     dropdownRef: React.RefObject<AutoComplete>;
-    searchInputsTbl: Map<string, SearchInput>;
 
     loadCookie(): AppCookie {
         if (document.cookie == null) return null;
@@ -214,20 +193,20 @@ class App extends React.Component<AppProps, AppState> {
     parseCookieData() {
         try {
             let defaultTbl = new Map<string, AppCookieSearchTblEntry>();
-            defaultTbl.set(this.state.cur_session, {
+            defaultTbl.set(crsSearchStore.cur_session, {
                 crs_enabled: [],
                 crs_solo_sections_obj: new Object(), crs_exclude_sections_obj: new Object(),
                 crs_sections_filtermode: [], crs_uids: []
             });
             let loadedCookie: AppCookie = this.loadCookie() || {
-                selected_session: this.state.cur_session,
+                selected_session: crsSearchStore.cur_session,
                 search_inputs_tbl: defaultTbl
             }
 
             crsdb.session_list().forEach((session) => {
                 let crsObjs: Course[] = [];
-                let soloSectionObjsMap = new Map<Course, Set<CourseSection>>();
-                let excludeSectionObjsMap = new Map<Course, Set<CourseSection>>();
+                let soloSectionObjsMap = new Map<string, Set<string>>();
+                let excludeSectionObjsMap = new Map<string, Set<string>>();
 
                 // for each session in the cookie, populate the searchInputsTable. 
                 // note- if a session is in the cookie but not in the sessions enumerated by crsdb, then it is lost.
@@ -238,24 +217,24 @@ class App extends React.Component<AppProps, AppState> {
                     let crsObj = crsdb.get_crs_by_uid(crs_uid);
                     crsObjs.push(crsObj);
 
-                    let soloSectionObjs = new Set<CourseSection>();
-                    let excludeSectionObjs = new Set<CourseSection>();
+                    let soloSectionObjs = new Set<string>();
+                    let excludeSectionObjs = new Set<string>();
 
                     cookieSesh.crs_solo_sections_obj[crs_uid].forEach(sectionId => {
                         let crsSectionObj = crsdb.get_crs_section_by_id(crsObj, sectionId);
-                        soloSectionObjs.add(crsSectionObj);
+                        soloSectionObjs.add(crsSectionObj.section_id);
                     });
 
                     cookieSesh.crs_exclude_sections_obj[crs_uid].forEach(sectionId => {
                         let crsSectionObj = crsdb.get_crs_section_by_id(crsObj, sectionId);
-                        excludeSectionObjs.add(crsSectionObj);
+                        excludeSectionObjs.add(crsSectionObj.section_id);
                     });
 
-                    soloSectionObjsMap.set(crsObj, soloSectionObjs);
-                    excludeSectionObjsMap.set(crsObj, excludeSectionObjs);
+                    soloSectionObjsMap.set(crsObj.unique_id, soloSectionObjs);
+                    excludeSectionObjsMap.set(crsObj.unique_id, excludeSectionObjs);
                 });
 
-                this.searchInputsTbl.set(session, {
+                crsSearchStore.search_inputs_tbl.set(session, {
                     search_crs_list: crsObjs,
                     search_crs_solo_sections_map: soloSectionObjsMap,// a map of course object to the set of solo/exclude sections
                     search_crs_exclude_sections_map: excludeSectionObjsMap,
@@ -263,15 +242,12 @@ class App extends React.Component<AppProps, AppState> {
                     // search_crs_conflict_group_map: conflictGroupMap,
                     search_crs_enabled: cookieSesh.crs_enabled,
                     search_crs_sections_filtermode: cookieSesh.crs_sections_filtermode,
-                    search_crs_conflict_group_map: new Map<Course, string>(), // maps from course to color. if a course is not in the map then it doesn't have a conflict group
+                    search_crs_conflict_group_map: new Map<string, string>(), // maps from course to color. if a course is not in the map then it doesn't have a conflict group
                     search_result_selections: []
                 });
             });
 
-            this.setState({
-                cur_session: loadedCookie.selected_session,
-                search_inputs_tbl: new Tagged(this.searchInputsTbl)
-            });
+            crsSearchStore.cur_session = loadedCookie.selected_session;
         } catch (error) {
             message.warning("Cookies failed to load. ", 3);
         }
@@ -281,17 +257,19 @@ class App extends React.Component<AppProps, AppState> {
         // convert javascript Maps into plain JS objects, so that they work with JSON.stringify.
         let newCookie: AppCookie = {
             search_inputs_tbl: new Object(),
-            selected_session: this.state.cur_session
+            selected_session: crsSearchStore.cur_session
         };
-        for (const session of this.searchInputsTbl.keys()) {
-            let stbl: SearchInput = this.searchInputsTbl.get(session);
+        for (const session of crsSearchStore.search_inputs_tbl.keys()) {
+            let stbl: SearchInput = crsSearchStore.search_inputs_tbl.get(session);
             let soloSectionsObj = new Object(); // a JS object with keys consisting of the course's unique ID, and values which are arrays of soloed section IDs for that course.
             let excludeSectionsObj = new Object();
+            // the keys of these two maps are strings, representing the course unique ID.
+            // the values of these two maps are arrays which represent section IDS associated with the course unique ID.
             stbl.search_crs_solo_sections_map.forEach((val, key) => {
-                soloSectionsObj[key.unique_id] = Array.from(val.values()).map(sec => sec.section_id);
+                soloSectionsObj[key] = Array.from(val.values());
             });
             stbl.search_crs_exclude_sections_map.forEach((val, key) => {
-                excludeSectionsObj[key.unique_id] = Array.from(val.values()).map(sec => sec.section_id);
+                excludeSectionsObj[key] = Array.from(val.values());
             });
 
             newCookie.search_inputs_tbl[session] = {
@@ -303,7 +281,7 @@ class App extends React.Component<AppProps, AppState> {
             };
         }
 
-        console.log(newCookie);
+        // console.log(newCookie);
         this.saveCookie(newCookie);
     }
 
@@ -325,22 +303,6 @@ class App extends React.Component<AppProps, AppState> {
 
         this.loadAvailableSessionData = this.loadAvailableSessionData.bind(this);
 
-        let default_session = "20205";
-
-        this.searchInputsTbl = new Map<string, SearchInput>();
-
-        crsdb.session_list().forEach(session => this.searchInputsTbl.set(session,
-            {
-                search_crs_list: [],
-                search_crs_solo_sections_map: new Map<Course, Set<CourseSection>>(),
-                search_crs_exclude_sections_map: new Map<Course, Set<CourseSection>>(),
-                search_crs_conflict_group_map: new Map<Course, string>(),
-                // at any point, a course may not have the same course in both solo_sections and exclude_sections
-                search_crs_enabled: [],
-                search_crs_sections_filtermode: [],
-                search_result_selections: []
-            }));
-
         // Set the state directly. Use props if necessary.
         this.state = {
             data_loaded: false,
@@ -354,12 +316,7 @@ class App extends React.Component<AppProps, AppState> {
             crs_search_str: "",
             crs_search_dropdown_open: false,
 
-            cur_campus_set: new Set<Campus>([Campus.UTM, Campus.STG_ARTSCI]),
-            cur_session: default_session,
-
             cur_search_status: null,
-
-            search_inputs_tbl: new Tagged(this.searchInputsTbl), // temporarily set it as null.
 
             search_result: [],
             search_result_idx: 0,
@@ -385,9 +342,10 @@ class App extends React.Component<AppProps, AppState> {
     initCookie() {
         let cookies: AppCookie = this.loadCookie();
         let crsSkeletonLineCount = 0;
-        if (cookies != null && this.state.cur_session in cookies.search_inputs_tbl)
-            crsSkeletonLineCount = cookies.search_inputs_tbl[cookies.selected_session].crs_uids.length
-
+        if (cookies != null) {
+            crsSkeletonLineCount = cookies.search_inputs_tbl[cookies.selected_session].crs_uids.length;
+            crsSearchStore.cur_session = cookies.selected_session;
+        }
         this.setState({
             preload_crs_skeleton_linecount: crsSkeletonLineCount
         });
@@ -435,152 +393,44 @@ class App extends React.Component<AppProps, AppState> {
         });
     }
 
-    /**
-     * When switching to session on init:
-     * - Check cookie
-     * - Load Data
-     * - Load session in cookie to memory
-     * - Set session
-     * 
-     * When switching to session live:
-     * - Load Data
-     * - Set session
-     * 
-     * search_crs_list: [],
-            search_crs_solo_sections_map: new Map<Course, Set<CourseSection>>(),
-            search_crs_exclude_sections_map: new Map<Course, Set<CourseSection>>(),
-            search_crs_conflict_group_map: new Map<Course, string>(),
-            // at any point, a course may not have the same course in both solo_sections and exclude_sections
-            
-            search_result_selections: [],
-     * */
     switchToSession(session) {
         console.log("switch to " + session);
         // console.log(this.searchInputsTbl.get(this.state.cur_session));
-        this.setState({ 
-            cur_session: session,
+        crsSearchStore.cur_session = session;
+
+        this.setState({
             search_result: [],
-            search_inputs_tbl: new Tagged(this.searchInputsTbl),
             cur_search_status: null,
-         });
-        
+        }, this.saveData);
     }
 
     conflict_color_list = ["#990000", "#009900", "#000099", "#999900", "#009999", "#990099"];
     crs_addSearchCrs(crsObj: Course) {
-        let stbl = this.searchInputsTbl.get(this.state.cur_session);
-
-        // if course is already in current list, then skip operation
-        if (stbl.search_crs_list.findIndex(crs => crs.unique_id == crsObj.unique_id) != -1)
-            return;
-        /*
-     
-            crs: crsObj,
-            solo_sections: new Set<CourseSection>(),
-            exclude_sections: new Set<CourseSection>(),
-            enabled: true,
-            sections_filtermode: SectionFilterMode.Exclude
-        */
-        let new_crs_list = stbl.search_crs_list.concat(crsObj);
-
-        let new_solo_map = new Map<Course, Set<CourseSection>>(stbl.search_crs_solo_sections_map);
-        let new_exclusion_map = new Map<Course, Set<CourseSection>>(stbl.search_crs_exclude_sections_map);
-        new_solo_map.set(crsObj, new Set<CourseSection>());
-        new_exclusion_map.set(crsObj, new Set<CourseSection>());
-
-        let new_conflict_group_map = new Map<Course, string>();
-        crs_arrange.get_conflict_map(new_crs_list, new_solo_map, new_exclusion_map).forEach((val, key) => {
-            new_conflict_group_map.set(key, this.conflict_color_list[val % this.conflict_color_list.length]);
-        });
-
-        this.searchInputsTbl.set(this.state.cur_session,
-            {
-                search_crs_list: new_crs_list,
-                search_crs_enabled: stbl.search_crs_enabled.concat(true),
-                search_crs_solo_sections_map: new_solo_map,
-                search_crs_exclude_sections_map: new_exclusion_map,
-                search_crs_conflict_group_map: new_conflict_group_map,
-                search_crs_sections_filtermode: stbl.search_crs_sections_filtermode.concat(SectionFilterMode.Exclude),
-                search_result_selections: stbl.search_result_selections
-            }
-        );
+        crsSearchStore.addSearchCrs(crsObj);
 
         this.setState({
             search_result: [],
-            search_inputs_tbl: new Tagged(this.searchInputsTbl),
             cur_search_status: null,
         },
             this.saveData);
     }
 
     crs_removeSearchCrs(crsObj: Course) {
-        let stbl = this.searchInputsTbl.get(this.state.cur_session);
-
-        let removeIdx = stbl.search_crs_list.findIndex(crs => crs.unique_id == crsObj.unique_id);
-        console.assert(removeIdx != -1);
-
-        let new_crs_list = stbl.search_crs_list.filter((crs, idx) => idx != removeIdx);
-
-        let new_solo_map = new Map<Course, Set<CourseSection>>(stbl.search_crs_solo_sections_map);
-        let new_exclusion_map = new Map<Course, Set<CourseSection>>(stbl.search_crs_exclude_sections_map);
-        new_solo_map.delete(crsObj);
-        new_exclusion_map.delete(crsObj);
-
-        let new_conflict_group_map = new Map<Course, string>();
-        crs_arrange.get_conflict_map(new_crs_list, new_solo_map, new_exclusion_map).forEach((val, key) => {
-            new_conflict_group_map.set(key, this.conflict_color_list[val % this.conflict_color_list.length]);
-        });
-
-        this.searchInputsTbl.set(this.state.cur_session,
-            {
-                search_crs_list: new_crs_list,
-                search_crs_enabled: stbl.search_crs_enabled.filter((crs, idx) => idx != removeIdx),
-                search_crs_solo_sections_map: new_solo_map,
-                search_crs_exclude_sections_map: new_exclusion_map,
-
-                search_crs_conflict_group_map: new_conflict_group_map,
-                search_crs_sections_filtermode: stbl.search_crs_sections_filtermode.filter((crs, idx) => idx != removeIdx),
-
-                search_result_selections: stbl.search_result_selections
-            }
-        );
+        crsSearchStore.removeSearchCrs(crsObj);
 
         this.setState({
             search_result: [],
             cur_search_status: null,
-            search_inputs_tbl: new Tagged(this.searchInputsTbl)
 
         },
             this.saveData);
     }
 
-    crs_updateSearchCrsFilterSections(targetCrsObj: Course, new_solo_sections: Map<Course, Set<CourseSection>>, new_exclude_sections: Map<Course, Set<CourseSection>>) {
-        const stbl: SearchInput = this.searchInputsTbl.get(this.state.cur_session);
-
-        let crsIdx = stbl.search_crs_list.findIndex(crs => crs.unique_id == targetCrsObj.unique_id);
-        console.assert(crsIdx != -1);
-        /*let new_solo_map = new Map<Course, Set<CourseSection>>(this.state.search_crs_solo_sections_map);
-        let new_exclusion_map = new Map<Course, Set<CourseSection>>(this.state.search_crs_exclude_sections_map);
-        new_solo_map.set(crsObj, new_solo_sections);
-        new_exclusion_map.set(crsObj, new_exclude_sections);*/
-        // The entire map goes into the component's props, and we trust the component to properly modify the whole map, and pass it back to this callback.
-        // console.log(new_solo_sections);
-        // console.log(new_exclude_sections);
-
-        // if a whitelist is specified, then activate the whitelist mode. otherwise, continue to use blacklist mode.
-        let new_filtermodes_list = [...stbl.search_crs_sections_filtermode];
-        new_filtermodes_list[crsIdx] = new_solo_sections.get(targetCrsObj).size != 0 ? SectionFilterMode.Solo : SectionFilterMode.Exclude;
-
-        stbl.search_crs_sections_filtermode = new_filtermodes_list;
-        stbl.search_crs_solo_sections_map = new_solo_sections;
-        stbl.search_crs_exclude_sections_map = new_exclude_sections;
-        // search_crs_solo_sections_all: new_search_crs_solo_sections.reduce((prev, cur) => { cur.forEach(sec => { prev.add(sec); }); return prev; }), // union of all sets in the list
-        // search_crs_exclude_sections_all: new_search_crs_exclude_sections.reduce((prev, cur) => { cur.forEach(sec => { prev.add(sec); }); return prev; }), // union of all sets in the list
+    crs_updateSearchCrsFilterSections(targetCrsObj: Course, new_solo_sections: Map<string, Set<string>>, new_exclude_sections: Map<string, Set<string>>) {
+        crsSearchStore.updateSearchCrsFilterSections(targetCrsObj, new_solo_sections, new_exclude_sections);
 
         this.setState(
-            {
-                search_inputs_tbl: new Tagged(this.searchInputsTbl)
-            },
+            {},
             () => {
                 this.saveData(); // save data to cookies after updating the state.
                 this.crs_doSearch(); // perform search again
@@ -590,13 +440,10 @@ class App extends React.Component<AppProps, AppState> {
     }
 
     crs_toggleCrsIndex(idx: number) {
-        const stbl: SearchInput = this.searchInputsTbl.get(this.state.cur_session);
+        crsSearchStore.toggleCrsIndex(idx);
 
-        let new_search_crs_enabled = [...stbl.search_crs_enabled];
-        new_search_crs_enabled[idx] = !(new_search_crs_enabled[idx]);
-        stbl.search_crs_enabled = new_search_crs_enabled;
 
-        this.setState({ search_inputs_tbl: new Tagged(this.searchInputsTbl) },
+        this.setState({},
             () => {
                 this.crs_doSearch();
                 this.saveData();
@@ -605,7 +452,7 @@ class App extends React.Component<AppProps, AppState> {
     }
 
     crs_doSearch() {
-        const stbl: SearchInput = this.searchInputsTbl.get(this.state.cur_session);
+        const stbl: SearchInput = crsSearchStore.search_inputs_tbl.get(crsSearchStore.cur_session);
 
         if (stbl.search_crs_list.length == 0) {
             this.setState({
@@ -623,22 +470,24 @@ class App extends React.Component<AppProps, AppState> {
             // A section may not be excluded and soloed at the same time.
             if (stbl.search_crs_enabled[idx]) {
                 let crs_sections = crsdb.list_all_crs_selections(crs);
-                // TODO: this is a temporary fix to allow for whitelist/blacklist of mixed sections.
                 // -> we will ignore the filter mode.
                 let sectypes = ["LEC", "TUT", "PRA"];
                 sectypes.forEach(sectype => {
                     // partition each set into the three section types.
-
-                    let sections_t_whitelist = new Set<CourseSection>(Array.from(stbl.search_crs_solo_sections_map.get(crs).values()).filter(sec => sec.section_id.substr(0, 3) == sectype));
-                    let sections_t_blacklist = new Set<CourseSection>(Array.from(stbl.search_crs_exclude_sections_map.get(crs).values()).filter(sec => sec.section_id.substr(0, 3) == sectype));
+                    let sections_t_whitelist = new Set<string>(Array.from(stbl.search_crs_solo_sections_map.get(crs.unique_id).values()).filter(sec_id => sec_id.substr(0, 3) == sectype));
+                    let sections_t_blacklist = new Set<string>(Array.from(stbl.search_crs_exclude_sections_map.get(crs.unique_id).values()).filter(sec_id => sec_id.substr(0, 3) == sectype));
+                    // console.log(crs);
+                    // console.log(sectype);
+                    // console.log([...stbl.search_crs_solo_sections_map.get(crs.unique_id).values()].filter(sec => sec.section_id.substr(0, 3) == sectype));
+                    // console.log([...stbl.search_crs_exclude_sections_map.get(crs.unique_id).values()].filter(sec => sec.section_id.substr(0, 3) == sectype));
 
                     let sections_t = crs_sections.filter(sel => {
                         if (sel.sec.section_id.substr(0, 3) != sectype) return false;
 
                         if (sections_t_whitelist.size == 0) { // no whitelisted sections of the type: then, check the blacklist
-                            return !sections_t_blacklist.has(sel.sec);
+                            return !sections_t_blacklist.has(sel.sec.section_id);
                         } else { // there are whitelisted sections of the type: then, check the whitelist 
-                            return sections_t_whitelist.has(sel.sec);
+                            return sections_t_whitelist.has(sel.sec.section_id);
                         }
                     });
 
@@ -657,6 +506,9 @@ class App extends React.Component<AppProps, AppState> {
             search_status = `limit of ${this.state.search_result_limit} schedules reached`;
         } else {
             search_status = `${search_result.solutionSet.length} schedules found`;
+        }
+
+        if (search_result.solutionSet.length > 0) {
             if (all_sections.every(crs_sel => crs_sel.crs.term == 'F'))
                 this.setState({ tt_tab_active: 'F' });
             else if (all_sections.every(crs_sel => crs_sel.crs.term == 'S'))
@@ -664,16 +516,12 @@ class App extends React.Component<AppProps, AppState> {
             else
                 this.setState({ tt_tab_active: 'Y' });
         }
-
         stbl.search_result_selections = new Array<number>(all_sections.length).fill(0);
 
         this.setState({
             search_result: search_result.solutionSet,
             search_result_idx: 0,
             cur_search_status: search_status,
-            // TODO: create separate method for grouping courses, make it part of crsdb
-            // TODO: use a map of crsgrp -> sel_idx as the search_result_selections, to help implement persistence
-            search_inputs_tbl: new Tagged(this.searchInputsTbl)
         });
     }
 
@@ -687,9 +535,8 @@ class App extends React.Component<AppProps, AppState> {
     }
 
     handleSelectionIndicesChanged(new_indices: number[]) {
-        const stbl: SearchInput = this.searchInputsTbl.get(this.state.cur_session);
+        const stbl: SearchInput = crsSearchStore.search_inputs_tbl.get(crsSearchStore.cur_session);
         stbl.search_result_selections = new_indices;
-        this.setState({ search_inputs_tbl: new Tagged(this.searchInputsTbl) });
 
     }
 
@@ -709,8 +556,7 @@ class App extends React.Component<AppProps, AppState> {
         );
     }
     public render() {
-
-        const stbl = this.searchInputsTbl.get(this.state.cur_session);
+        const stbl = crsSearchStore.search_inputs_tbl.get(crsSearchStore.cur_session);
 
         if (this.state.data_loaded) {
         }
@@ -718,7 +564,7 @@ class App extends React.Component<AppProps, AppState> {
         let dataSource = [];
 
         if (this.state.data_loaded && this.state.crs_search_str.length > 2) {
-            let crs_results = this.crs_listAllCourses(this.state.cur_campus_set, this.state.cur_session, this.state.crs_search_str);
+            let crs_results = this.crs_listAllCourses(crsSearchStore.cur_campus_set, crsSearchStore.cur_session, this.state.crs_search_str);
             dataSource = crs_results.map(crs => {
                 let crs_code = crs.course_code;
                 let crs_title = crs.course_name;
@@ -743,7 +589,7 @@ class App extends React.Component<AppProps, AppState> {
                                 this.crs_addSearchCrs(crs);
                             }}
                         >
-                            {this.state.cur_campus_set.size > 1 ? `[${Campus_Formatted[crs.campus]}] ` : null /*  */}
+                            {crsSearchStore.cur_campus_set.size > 1 ? `[${Campus_Formatted[crs.campus]}] ` : null /*  */}
                             {crs_code}: {crs_title} {/*[{Object.keys(crs.course_sections).join(',')}]*/}</div>
                     </AutoComplete.Option>
 
@@ -755,36 +601,37 @@ class App extends React.Component<AppProps, AppState> {
 
         if (this.state.data_loaded) {
             crs_search_items = stbl.search_crs_list.map((crs, idx) => {
-                let lockedSections = Array.from(stbl.search_crs_solo_sections_map.get(crs).values()).map((sec: CourseSection) => {
-                    return (<div key={sec.section_id} className="filtered-section-soloed" style={{ width: "100%", cursor: "pointer" }}
+                let lockedSections = Array.from(stbl.search_crs_solo_sections_map.get(crs.unique_id).values()).map((sec_id: string) => {
+                    return (<div key={sec_id} className="filtered-section-soloed" style={{ width: "100%", cursor: "pointer" }}
                         onClick={() => {
-                            let newSoloMap = new Map<Course, Set<CourseSection>>(stbl.search_crs_solo_sections_map);
-                            let newSoloSet = new Set<CourseSection>(newSoloMap.get(crs));
-                            newSoloSet.delete(sec);
-                            newSoloMap.set(crs, newSoloSet);
+                            let newSoloMap = new Map<string, Set<string>>(stbl.search_crs_solo_sections_map);
+                            let newSoloSet = new Set<string>(newSoloMap.get(crs.unique_id));
+                            newSoloSet.delete(sec_id);
+                            newSoloMap.set(crs.unique_id, newSoloSet);
                             this.crs_updateSearchCrsFilterSections(crs, newSoloMap, stbl.search_crs_exclude_sections_map);
                         }}
-                    ><Icon type="lock" /> {sec.section_id}
+                    ><Icon type="lock" /> {sec_id}
                         {/*<span style={{ backgroundColor: "#aaeeee", float: "right", marginRight:"25%" }}>Conflict</span> */}
                     </div>)
                 });
 
-                let blockedSections = Array.from(stbl.search_crs_exclude_sections_map.get(crs).values()).map((sec: CourseSection) => {
-                    return (<div key={sec.section_id} className="filtered-section-excluded" style={{ width: "100%", cursor: "pointer" }}
+                let blockedSections = Array.from(stbl.search_crs_exclude_sections_map.get(crs.unique_id).values()).map((sec_id: string) => {
+                    return (<div key={sec_id} className="filtered-section-excluded" style={{ width: "100%", cursor: "pointer" }}
                         onClick={() => {
-                            let newExcludeMap = new Map<Course, Set<CourseSection>>(stbl.search_crs_exclude_sections_map);
-                            let newExcludeSet = new Set<CourseSection>(newExcludeMap.get(crs));
-                            newExcludeSet.delete(sec);
-                            newExcludeMap.set(crs, newExcludeSet);
+                            let newExcludeMap = new Map<string, Set<string>>(stbl.search_crs_exclude_sections_map);
+                            let newExcludeSet = new Set<string>(newExcludeMap.get(crs.unique_id));
+                            newExcludeSet.delete(sec_id);
+                            newExcludeMap.set(crs.unique_id, newExcludeSet);
                             this.crs_updateSearchCrsFilterSections(crs, stbl.search_crs_solo_sections_map, newExcludeMap);
                         }}
-                    ><Icon type="minus-circle" theme="filled" /> {sec.section_id}
+                    ><Icon type="minus-circle" theme="filled" /> {sec_id}
                         {/* <span style={{ backgroundColor: "#aaeeee", float: "right", marginRight:"25%" }}>Conflict</span> */}
                     </div>
                     )
                 });
-                let conflictMarker = stbl.search_crs_conflict_group_map.has(crs)
-                    ? (<span style={{ backgroundColor: stbl.search_crs_conflict_group_map.get(crs) }}>Conflict</span>)
+
+                let conflictMarker = stbl.search_crs_conflict_group_map.has(crs.unique_id)
+                    ? (<span style={{ backgroundColor: stbl.search_crs_conflict_group_map.get(crs.unique_id) }}>Conflict</span>)
                     : (<span style={{}}>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>);
 
                 return (
@@ -849,25 +696,27 @@ class App extends React.Component<AppProps, AppState> {
                 <div className="ctrls">
                     <Collapse
                         bordered={false}
-                        activeKey={['1', '3', '4']}
-                        style={{ backgroundColor: "darkgray" }}
+                        defaultActiveKey={['1', '2', '3']}
+                        style={{}}
                     >
-                        <Collapse.Panel header="Courses list" key="1" disabled showArrow={true} extra={
-                            <SettingsButton
-                                currentSettings={{
-                                    selectedCampus: this.state.cur_campus_set,
-                                    showLockExcludeBtn: this.state.setting_showLockExcludeBtn
-                                }}
-                                onSettingsModified={(newSettings) => {
-                                    this.setState({
-                                        cur_campus_set: newSettings.selectedCampus,
-                                        setting_showLockExcludeBtn: newSettings.showLockExcludeBtn
-                                    });
-                                }}
-                                onSettingsCancelled={() => {
-                                }}
-                            />
-                        }>
+                        <Collapse.Panel header="Courses list" key="1" disabled
+                            showArrow={false}
+                            extra={
+                                <SettingsButton
+                                    currentSettings={{
+                                        selectedCampus: crsSearchStore.cur_campus_set,
+                                        showLockExcludeBtn: this.state.setting_showLockExcludeBtn
+                                    }}
+                                    onSettingsModified={(newSettings) => {
+                                        crsSearchStore.cur_campus_set = newSettings.selectedCampus;
+                                        this.setState({
+                                            setting_showLockExcludeBtn: newSettings.showLockExcludeBtn
+                                        });
+                                    }}
+                                    onSettingsCancelled={() => {
+                                    }}
+                                />
+                            }>
                             {/*<Card size="small" style={{ width: "auto" }}>
                                 <p>Select courses:</p>
                                 {crs_disp_items}
@@ -877,9 +726,46 @@ class App extends React.Component<AppProps, AppState> {
 
                             <Card size="small" style={{ width: "auto" }}>
                                 <p>Select courses from the dropdown below, and then press the 'Search' button to generate schedules.</p>
-                                <p>Your list of courses will appear below.</p>
+                                <p>Course list:</p>
                                 {crs_search_items}
+
+                                <div>
+                                    <div style={{ marginTop: "10px", marginBottom: "10px" }}>
+                                        {this.state.cur_search_status == null ? "View Results:" : `View results (${this.state.cur_search_status}):`}
+                                    </div>
+                                    <span style={{ float: "left", width: "67%" }}>
+                                        <Pagination
+                                            current={this.state.search_result.length == 0 ? 0 : this.state.search_result_idx + 1}
+                                            disabled={this.state.search_result.length == 0}
+                                            simple
+                                            size={"small"}
+                                            defaultCurrent={0}
+                                            total={this.state.search_result.length}
+                                            pageSize={1}
+                                            style={{ marginBottom: "10px" }}
+                                            onChange={(idx) => {
+                                                idx -= 1;
+                                                if (idx >= this.state.search_result.length || idx < 0) return;
+                                                else {
+                                                    const stbl: SearchInput = crsSearchStore.search_inputs_tbl.get(crsSearchStore.cur_session);
+                                                    stbl.search_result_selections = new Array<number>(this.state.search_result[idx].data.length).fill(0)
+                                                    this.setState({
+                                                        search_result_idx: idx,
+                                                    });
+                                                }
+                                            }}
+                                        />
+
+                                    </span>
+                                    <span style={{ float: "right" }}>  <Button icon="search" onClick={this.crs_doSearch.bind(this)}
+
+                                    >
+                                        Search
+                                   </Button></span>
+                                </div>
+
                             </Card>
+
                             <div className="sel-crs">
                                 <label>Add a course:</label>
                                 <AutoComplete
@@ -926,53 +812,16 @@ class App extends React.Component<AppProps, AppState> {
                             </div>
 
                         </Collapse.Panel>
-                        {/*<Collapse.Panel header="Constraints" key="2" showArrow={true}>
+                        <Collapse.Panel header="Tweak your schedule" key="2" showArrow={true}
+
+                        > {/*extra={<Badge
+                            count={4}
+                            style={{ userSelect: "none", backgroundColor: '#fff', color: '#999', boxShadow: '0 0 0 1px #d9d9d9 inset' }}
+                        />}*/}
                             <p>This is currently a work in progress.</p>
-                                        </Collapse.Panel>*/}
+                        </Collapse.Panel>
                         <Collapse.Panel header="Search" key="3" showArrow={true} >
-                            {/*extra={<Badge
-    count={4}
-    style={{ userSelect: "none", backgroundColor: '#fff', color: '#999', boxShadow: '0 0 0 1px #d9d9d9 inset' }}
-/>}*/}
-                            <div>
-                                <div>
-                                    Press the button below to search for schedules
-                                </div>
-                                <Button icon="search" onClick={this.crs_doSearch.bind(this)}
-                                    style={{}}
-                                >
-                                    Search
-                            </Button>
-                                <div style={{ marginTop: "10px", marginBottom: "10px" }}>
-                                    {this.state.cur_search_status == null ? "View Results:" : `View results (${this.state.cur_search_status}):`}
-                                </div>
-                                <div>
-                                    <Pagination
-                                        current={this.state.search_result.length == 0 ? 0 : this.state.search_result_idx + 1}
-                                        disabled={this.state.search_result.length == 0}
-                                        simple
 
-                                        defaultCurrent={0}
-                                        total={this.state.search_result.length}
-                                        pageSize={1}
-                                        style={{ marginBottom: "10px" }}
-                                        onChange={(idx) => {
-                                            idx -= 1;
-                                            if (idx >= this.state.search_result.length || idx < 0) return;
-                                            else {
-                                                const stbl: SearchInput = this.searchInputsTbl.get(this.state.cur_session);
-                                                stbl.search_result_selections = new Array<number>(this.state.search_result[idx].data.length).fill(0)
-                                                this.setState({
-                                                    search_result_idx: idx,
-                                                    search_inputs_tbl: new Tagged(this.searchInputsTbl)
-                                                });
-                                            }
-                                        }}
-                                    />
-
-                                </div>
-                                <span style={{ float: "right" }}></span>
-                            </div>
                         </Collapse.Panel>
                         <Collapse.Panel header="About" key="4" showArrow={true}>
                             <p>Source Code: <a target="_blank" href="https://github.com/ProjectEGU/TimerTable">View on GitHub</a></p>
@@ -989,7 +838,7 @@ class App extends React.Component<AppProps, AppState> {
                         activeKey={this.state.tt_tab_active}
                         tabBarExtraContent={
                             <Dropdown overlay={this.sessionSelectorMenu} trigger={['click']}>
-                                <p>{crsdb.session_format(this.state.cur_session)} <Icon type="down" /> </p>
+                                <p>{crsdb.session_format(crsSearchStore.cur_session)} <Icon type="down" /> </p>
                             </Dropdown>
                         }
                     >
@@ -1032,4 +881,4 @@ class App extends React.Component<AppProps, AppState> {
 
 declare let module: object;
 
-export default hot(module)(App);
+export default hot(module)(view(App));

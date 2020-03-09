@@ -124,7 +124,7 @@ export class SettingsButton extends React.Component<SettingsProps, SettingsState
         });
     }
 
-    lockBtnHandler(enabled:boolean){
+    lockBtnHandler(enabled: boolean) {
         this.setState({ curShowLockExcludeBtn: enabled }, () => {
             this.settingsValidation(); // perform settingsValidation after the update to this.state has taken effect
         });
@@ -132,77 +132,83 @@ export class SettingsButton extends React.Component<SettingsProps, SettingsState
 
     render() {
         return (
-            <Popover placement="bottom" title={"Settings"} style={{ padding: "0px" }}
-                trigger="click"
-                autoAdjustOverflow={false}
-                onVisibleChange={(isVisible) => { this.menuVisibleChanged(isVisible) }}
-                visible={this.state.showMenu}
-                content={
-                    <>
-                        <div> Display options: </div>
+            <div
+                onClick={(evt) => {
+                    evt.stopPropagation();
+                }}>
+                <Popover placement="bottom" title={"Settings"} style={{ padding: "0px" }}
+                    trigger="click"
+                    autoAdjustOverflow={false}
+                    onVisibleChange={(isVisible) => { this.menuVisibleChanged(isVisible) }}
+                    visible={this.state.showMenu}
+
+                    content={
+                        <>
+                            <div> Display options: </div>
                             <Checkbox onChange={e => {
                                 this.lockBtnHandler(e.target.checked);
                             }}
                                 checked={this.state.curShowLockExcludeBtn}
                             >Show lock and block buttons</Checkbox>
 
-                        <div> Enable search in these campuses:</div>
-                        <div>
-                            <Checkbox onChange={e => {
-                                this.campusSelectionHandler(Campus.UTM, e.target.checked);
-                            }}
-                                checked={this.state.curCampusSelection.has(Campus.UTM)}
-                            // changing visibility via property will not fire off another onChange event.
-                            >UTM</Checkbox>
-                        </div>
-
-                        <div>
-                            <Checkbox onChange={e => {
-                                this.campusSelectionHandler(Campus.STG_ARTSCI, e.target.checked);
-                            }}
-                                checked={this.state.curCampusSelection.has(Campus.STG_ARTSCI)}
-                            >St. George</Checkbox>
-                        </div>
-
-                        <div>{this.state.settingsValid ? " " : this.state.errorMsg}</div>
-
-                        <div style={{ textAlign: "right" }}>
-                            <Button
-                                style={{ marginTop: "5px", marginRight: "5px" }}
-                                size="small"
-                                type="default"
-                                onClick={(evt) => {
-                                    evt.stopPropagation();
-                                    this.setState({ showMenu: false });
-                                    this.settingsRevert();
+                            <div> Enable search in these campuses:</div>
+                            <div>
+                                <Checkbox onChange={e => {
+                                    this.campusSelectionHandler(Campus.UTM, e.target.checked);
                                 }}
-                            >Cancel</Button>
-                            <Button
-                                style={{ marginTop: "5px" }}
-                                size="small"
-                                type="default"
-                                disabled={!this.state.settingsValid}
-                                onClick={(evt) => {
-                                    evt.stopPropagation();
-                                    this.setState({ showMenu: false });
-                                    this.settingsUpdated();
+                                    checked={this.state.curCampusSelection.has(Campus.UTM)}
+                                // changing visibility via property will not fire off another onChange event.
+                                >UTM</Checkbox>
+                            </div>
+
+                            <div>
+                                <Checkbox onChange={e => {
+                                    this.campusSelectionHandler(Campus.STG_ARTSCI, e.target.checked);
                                 }}
-                            >OK</Button>
-                        </div>
-                    </>
-                }
-            >
-                <Button
-                    size="small"
-                    type="default"
-                    onClick={(evt) => {
-                        evt.stopPropagation();
-                    }}
+                                    checked={this.state.curCampusSelection.has(Campus.STG_ARTSCI)}
+                                >St. George</Checkbox>
+                            </div>
+
+                            <div>{this.state.settingsValid ? " " : this.state.errorMsg}</div>
+
+                            <div style={{ textAlign: "right" }}>
+                                <Button
+                                    style={{ marginTop: "5px", marginRight: "5px" }}
+                                    size="small"
+                                    type="default"
+                                    onClick={(evt) => {
+                                        evt.stopPropagation();
+                                        this.setState({ showMenu: false });
+                                        this.settingsRevert();
+                                    }}
+                                >Cancel</Button>
+                                <Button
+                                    style={{ marginTop: "5px" }}
+                                    size="small"
+                                    type="default"
+                                    disabled={!this.state.settingsValid}
+                                    onClick={(evt) => {
+                                        evt.stopPropagation();
+                                        this.setState({ showMenu: false });
+                                        this.settingsUpdated();
+                                    }}
+                                >OK</Button>
+                            </div>
+                        </>
+                    }
                 >
-                    <Icon type="setting" />
-                    Settings
+                    <Button
+                        size="small"
+                        type="default"
+                        onClick={(evt) => {
+                            evt.stopPropagation();
+                        }}
+                    >
+                        <Icon type="setting" />
+                        Settings
                             </Button>
-            </Popover>
+                </Popover>
+            </div>
         );
     }
 }

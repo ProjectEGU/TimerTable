@@ -99,9 +99,9 @@ export class crsdb {
         else return crs_list.filter((x: Course) => x.course_code.toUpperCase().startsWith(crs_code));
     }
 
-    static get_crs_by_uid(unique_id: string) {
+    static get_crs_by_uid(unique_id: string) : Course {
         if (!(unique_id in crsdb.crs_unique_id_map)) {
-            console.error("get_crs_selections_by_id: course unique id not found: " + unique_id);
+            console.error("get_crs_by_uid: course unique id not found: " + unique_id);
             return null;
         }
         return crsdb.crs_unique_id_map[unique_id];
