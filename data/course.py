@@ -72,12 +72,17 @@ class Timeslot:
         if self.weekday != other.weekday:
             return False
 
+        self_start_time = self.start_time[0] * 60 + self.start_time[1]
+        other_start_time = other.start_time[0] * 60 + other.start_time[1]
+        self_end_time = self.end_time[0] * 60 + self.end_time[1]
+        other_end_time = other.end_time[0] * 60 + other.end_time[1]
+
         # if self.start_time <= other.start_time and self.end_time <= other.start_time:
-        if all(a <= b for a, b in zip(self.start_time, other.start_time)) and all(a <= b for a, b in zip(self.end_time, other.start_time)):
+        if self_start_time <= other_start_time and self_end_time <= other_end_time:
             return False
 
         # if self.start_time >= other.end_time and self.end_time >= other.end_time:
-        if all(a >= b for a, b in zip(self.start_time, other.end_time)) and all(a <= b for a, b in zip(self.end_time, other.end_time)):
+        if self_start_time >= other_end_time and self_end_time >= other_end_time:
             return False
 
         return True

@@ -37,8 +37,7 @@ body {
   user-select: none;
 }
 
-.ant-tabs-extra-content {
-  float: left !important;
+.session-selector-menu {
   -moz-user-select: none;
   -webkit-user-select: none;
   -ms-user-select: none;
@@ -56,6 +55,9 @@ body {
     color: #40a9ff;
   }
 }
+.ant-tabs-extra-content {
+  float: left !important;
+}
 
 .ant-select-dropdown-menu {
   // max-height: 500px;
@@ -65,10 +67,10 @@ body {
 .ant-tabs {
   overflow: visible; //show the border of rightmost cell
 }
-
+/*
 .ant-select-dropdown {
   width: auto !important;
-}
+}*/
 
 // components
 

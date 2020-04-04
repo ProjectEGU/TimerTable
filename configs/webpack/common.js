@@ -2,6 +2,7 @@
 const {resolve} = require('path');
 const {CheckerPlugin} = require('awesome-typescript-loader');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
+const WorkerPlugin = require('worker-plugin');
 
 module.exports = {
   resolve: {
@@ -24,7 +25,7 @@ module.exports = {
         use: ['style-loader', { loader: 'css-loader', options: { importLoaders: 1 } }],
       },
       {
-        test: /\.scss$/,
+        test: /\.(scss|sass)$/,
         loaders: [
           'style-loader',
           { loader: 'css-loader', options: { importLoaders: 1 } },
@@ -41,6 +42,7 @@ module.exports = {
     ],
   },
   plugins: [
+    new WorkerPlugin(),
     new CheckerPlugin(),
     new HtmlWebpackPlugin({template: 'index.html.ejs',}),
   ],
