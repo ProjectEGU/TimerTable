@@ -3,9 +3,10 @@ import { Course, CourseSection, CourseSelection, Timeslot } from "./course";
 import "./../assets/scss/sched_disp.scss";
 import { AssertionError } from "assert";
 import { crsdb } from "./crsdb";
-import { Icon, Button, Popover, Select } from 'antd';
+import { Button, Popover, Select } from 'antd';
 import { AlternateSectionButton } from "./alt_sect_btn";
 import { view } from "react-easy-state";
+import { CloseSquareFilled, LockFilled } from "@ant-design/icons";
 
 interface SchedDispProps {
     show_term: string,
@@ -61,7 +62,7 @@ interface crs_tslot // represents a single timeslot of a course selection
 class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
 
     static defaultProps = {
-        startTime: [9, 0],
+        startTime: [8, 0],
         endTime: [21, 30],
         stepMins: 30, // the number of minutes increase per cell
         stepsPerLine: 2,// how many steps before drawing a line
@@ -333,7 +334,7 @@ class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
                                     }
                                 }}
                             >
-                                <Icon className={
+                                <CloseSquareFilled className={
                                     this.props.crs_exclude_sections_map != null
                                         ? (this.props.crs_exclude_sections_map.get(place_ct.crs_sel.crs.unique_id).has(place_ct.crs_sel.sec.section_id) ? "adjButtonActive" :
                                             (this.props.crs_solo_sections_map.get(place_ct.crs_sel.crs.unique_id).has(place_ct.crs_sel.sec.section_id) ? "adjButtonLocked" : "adjButton"))
@@ -368,11 +369,11 @@ class SchedDisp extends React.Component<SchedDispProps, SchedDispState> {
                                     }
                                 }}
                             >
-                                <Icon className={
+                                <LockFilled className={
                                     this.props.crs_solo_sections_map != null
                                         ? (this.props.crs_solo_sections_map.get(place_ct.crs_sel.crs.unique_id).has(place_ct.crs_sel.sec.section_id) ? "adjButtonActive" : "adjButton")
                                         : "adjButton"
-                                } type="lock" theme="filled"
+                                }  
                                     style={
                                         {
                                             display: "block", padding: "5px 5px 3px 5px", margin: "2px 0px 5px 0px",

@@ -4,20 +4,23 @@ import { hot } from "react-hot-loader";
 import "./../assets/scss/App.scss";
 import 'antd/dist/antd.css';
 
-import { Solution as DLXSolution } from "./dlxmatrix"
+import { Solution as DLXSolution, DLXMatrix } from "./dlxmatrix"
 import { crsdb, Campus, Campus_Formatted } from "./crsdb"
 import { Course, CourseSection, CourseSectionsDict, Timeslot, CourseSelection } from "./course"
 import SchedDisp from "./sched_disp";
-import { AutoComplete, Button, Card, Tabs, Icon, Input, Badge, Collapse, Pagination, Popover, Checkbox, message, Skeleton, Menu, Dropdown } from 'antd';
+import { AutoComplete, Button, Card, Tabs, Input, Badge, Collapse, Pagination, Popover, Checkbox, message, Skeleton, Menu, Dropdown, Select, InputNumber } from 'antd';
 import { AutoCompleteProps } from "antd/lib/auto-complete";
 import { AssertionError } from "assert";
 import { crs_arrange, SchedSearchResult } from "./schedule";
 import { SettingsButton } from "./settings_button";
 
+import { LockTwoTone, MinusCircleFilled, CloseOutlined, LoadingOutlined, UpOutlined, DownOutlined, SearchOutlined } from "@ant-design/icons";
+
 import { view, store } from "react-easy-state";
 
 import { SearchInput, SectionFilterMode, crsSearchStoreFormat } from "./crsSearchStore";
 import crsSearchStore from "./crsSearchStore";
+import { SelectValue } from "antd/lib/select";
 
 /**
  * Jan 22 todo:
@@ -153,8 +156,9 @@ interface AppState {
 
     setting_showLockExcludeBtn: boolean;
 
-
     preload_crs_skeleton_linecount: number;
+
+    top_solutions_count: number;
 }
 
 interface AppCookieSearchTblEntry {
@@ -172,7 +176,7 @@ interface AppCookie {
 
 
 class App extends React.Component<AppProps, AppState> {
-    dropdownRef: React.RefObject<AutoComplete>;
+    dropdownRef: React.RefObject<Select<SelectValue>>;
 
     loadCookie(): AppCookie {
         if (document.cookie == null) return null;
@@ -289,7 +293,7 @@ class App extends React.Component<AppProps, AppState> {
         // Required step: always call the parent class' constructor
         super(props);
 
-        this.dropdownRef = React.createRef<AutoComplete>();
+        this.dropdownRef = React.createRef<Select<SelectValue>>();
 
         this.handleSelectionIndicesChanged = this.handleSelectionIndicesChanged.bind(this);
 
@@ -325,13 +329,17 @@ class App extends React.Component<AppProps, AppState> {
 
             setting_showLockExcludeBtn: true,
 
-            preload_crs_skeleton_linecount: 0
+            preload_crs_skeleton_linecount: 0,
+
+            top_solutions_count : 4
         }
 
         this.initComponents();
     }
 
     componentDidMount() {
+        console.log("component mounted");
+
         this.initCookie();
         this.loadAvailableSessionData().then(() => {
             this.parseCookieData();
@@ -407,6 +415,7 @@ class App extends React.Component<AppProps, AppState> {
     conflict_color_list = ["#990000", "#009900", "#000099", "#999900", "#009999", "#990099"];
     crs_addSearchCrs(crsObj: Course) {
         crsSearchStore.addSearchCrs(crsObj);
+        //this.dropdownRef.current.focus();
 
         this.setState({
             search_result: [],
@@ -445,7 +454,7 @@ class App extends React.Component<AppProps, AppState> {
 
         this.setState({},
             () => {
-                this.crs_doSearch();
+               // this.crs_doSearch();
                 this.saveData();
             }
         );
@@ -496,7 +505,11 @@ class App extends React.Component<AppProps, AppState> {
             }
         });
 
-        let search_result: SchedSearchResult = crs_arrange.find_sched(all_sections, this.state.search_result_limit);
+        console.time("calculation");
+        let search_result: SchedSearchResult = crs_arrange.find_sched(all_sections, this.state.search_result_limit, this.state.top_solutions_count);
+        console.timeEnd("calculation");
+        console.log("total solutions: " + search_result.solutionSet.length);//@@@@@
+        // search_result.solutionSet.length = 0;//@@@@@
         let search_status: string;
         if (search_result.solutionSet.length == 0) {
             search_status = "no feasible schedules found";
@@ -610,7 +623,8 @@ class App extends React.Component<AppProps, AppState> {
                             newSoloMap.set(crs.unique_id, newSoloSet);
                             this.crs_updateSearchCrsFilterSections(crs, newSoloMap, stbl.search_crs_exclude_sections_map);
                         }}
-                    ><Icon type="lock" /> {sec_id}
+                    >
+                        <LockTwoTone /> {sec_id}
                         {/*<span style={{ backgroundColor: "#aaeeee", float: "right", marginRight:"25%" }}>Conflict</span> */}
                     </div>)
                 });
@@ -624,7 +638,7 @@ class App extends React.Component<AppProps, AppState> {
                             newExcludeMap.set(crs.unique_id, newExcludeSet);
                             this.crs_updateSearchCrsFilterSections(crs, stbl.search_crs_solo_sections_map, newExcludeMap);
                         }}
-                    ><Icon type="minus-circle" theme="filled" /> {sec_id}
+                    ><MinusCircleFilled />{sec_id}
                         {/* <span style={{ backgroundColor: "#aaeeee", float: "right", marginRight:"25%" }}>Conflict</span> */}
                     </div>
                     )
@@ -650,7 +664,7 @@ class App extends React.Component<AppProps, AppState> {
 
                                 {conflictMarker}
 
-                                <Icon type="close"
+                                <CloseOutlined
                                     onClick={() => {
                                         this.crs_removeSearchCrs(crs);
                                     }} />
@@ -673,7 +687,7 @@ class App extends React.Component<AppProps, AppState> {
                         <span style={{ float: "left", width: "90%" }}>
                             <Skeleton active title={false} paragraph={{ rows: 1, style: { marginBottom: "0px" } }} />
                         </span>
-                        <span style={{ float: "right" }}>&nbsp;<Icon type="close" /></span>
+                        <span style={{ float: "right" }}>&nbsp;<CloseOutlined /></span>
                         <br />
                     </div>
                 );
@@ -690,7 +704,11 @@ class App extends React.Component<AppProps, AppState> {
         let sectionsList = showSearchResults ? this.state.search_result[this.state.search_result_idx].data : [];
 
         let crs_dropdown_open = this.state.crs_search_dropdown_open && dataSource.length > 0;
-
+        let sessionSelectorMenuDisplay = (<Dropdown overlay={this.sessionSelectorMenu} trigger={['click']}>
+            <div className="session-selector-menu">
+                <p>{crsdb.session_format(crsSearchStore.cur_session)} <DownOutlined /> </p>
+            </div>
+        </Dropdown>);
         return (
             <div className="app">
                 <div className="ctrls">
@@ -726,6 +744,7 @@ class App extends React.Component<AppProps, AppState> {
 
                             <Card size="small" style={{ width: "auto" }}>
                                 <p>Select courses from the dropdown below, and then press the 'Search' button to generate schedules.</p>
+                                {/*sessionSelectorMenuDisplay*/}
                                 <p>Course list:</p>
                                 {crs_search_items}
 
@@ -751,28 +770,34 @@ class App extends React.Component<AppProps, AppState> {
                                                     stbl.search_result_selections = new Array<number>(this.state.search_result[idx].data.length).fill(0)
                                                     this.setState({
                                                         search_result_idx: idx,
-                                                    });
+                                                    }, 
+                                                    () => {console.log(`score at idx ${idx}: ${this.state.search_result[idx].score}`);});
                                                 }
                                             }}
                                         />
 
                                     </span>
-                                    <span style={{ float: "right" }}>  <Button icon="search" onClick={this.crs_doSearch.bind(this)}
+                                    <span style={{ float: "right" }}>  <Button icon={<SearchOutlined />} onClick={this.crs_doSearch.bind(this)}
 
                                     >
                                         Search
                                    </Button></span>
                                 </div>
-
                             </Card>
 
                             <div className="sel-crs">
                                 <label>Add a course:</label>
                                 <AutoComplete
-                                    ref={this.dropdownRef} open={crs_dropdown_open} size="large" style={{ width: "100%" }} dropdownStyle={{ width: "auto" }}
+                                    ref={this.dropdownRef} open={crs_dropdown_open} size="large"
+                                    style={{ width: "100%" }}
+                                    dropdownAlign={{
+                                        points: ['tr', 'br'] // align to bottom-right or top-right : https://github.com/ant-design/ant-design/issues/18763
+                                    }}
+                                    dropdownMatchSelectWidth={400}
                                     disabled={this.state.data_load_error}
                                     dataSource={dataSource}
                                     placeholder="Enter first 3 letters of course code"
+
                                     onChange={(v) => {
                                         this.setState({
                                             crs_search_str: v.toString(),
@@ -785,26 +810,25 @@ class App extends React.Component<AppProps, AppState> {
                                         });
                                     }}
                                     onSelect={(a, b) => false}
-                                    optionLabelProp="value"
                                 >
                                     <Input
                                         onFocus={() => {
                                             this.setState({ crs_search_dropdown_open: this.state.crs_search_str.length >= 3 });
                                         }}
+
                                         suffix={
-                                            <div>
-                                                {!this.state.data_loaded && this.state.crs_search_str.length > 2 ? <Icon type="loading" style={{ paddingRight: 12 }} /> : null}
+                                            <>
+                                                {!this.state.data_loaded && this.state.crs_search_str.length > 2 ? <LoadingOutlined type="loading" style={{ paddingRight: 12 }} /> : null}
                                                 <Button
-                                                    style={{ marginRight: -12, opacity: 1 }}
-                                                    size="large"
+                                                    size="small"
                                                     type={crs_dropdown_open ? "primary" : "default"}
                                                     onClick={() => {
                                                         this.setState({ crs_search_dropdown_open: this.state.crs_search_str.length >= 3 && !crs_dropdown_open });
                                                     }}
                                                 >
-                                                    <Icon type={crs_dropdown_open ? "up" : "down"} />
+                                                    {crs_dropdown_open ? <UpOutlined /> : <DownOutlined />}
                                                 </Button>
-                                            </div>
+                                            </>
                                         }
 
                                     />
@@ -813,11 +837,14 @@ class App extends React.Component<AppProps, AppState> {
 
                         </Collapse.Panel>
                         <Collapse.Panel header="Tweak your schedule" key="2" showArrow={true}
-
                         > {/*extra={<Badge
                             count={4}
                             style={{ userSelect: "none", backgroundColor: '#fff', color: '#999', boxShadow: '0 0 0 1px #d9d9d9 inset' }}
                         />}*/}
+                            <InputNumber min={0} max={40} value={this.state.top_solutions_count} onChange={(val) => {
+                                this.setState({top_solutions_count: val});
+                            }} />
+                           
                             <p>This is currently a work in progress.</p>
                         </Collapse.Panel>
                         <Collapse.Panel header="Search" key="3" showArrow={true} >
@@ -837,12 +864,10 @@ class App extends React.Component<AppProps, AppState> {
                         onChange={activeKey => this.setState({ tt_tab_active: activeKey })}
                         activeKey={this.state.tt_tab_active}
                         tabBarExtraContent={
-                            <Dropdown overlay={this.sessionSelectorMenu} trigger={['click']}>
-                                <p>{crsdb.session_format(crsSearchStore.cur_session)} <Icon type="down" /> </p>
-                            </Dropdown>
+                            sessionSelectorMenuDisplay
                         }
                     >
-                        <Tabs.TabPane tab="Fall" key="F">
+                        <Tabs.TabPane tab={crsSearchStore.cur_session.endsWith('9') ? "Fall" : "Term 1"} key="F">
                             <SchedDisp crs_selections_groups={sectionsList} crs_selections_indices={stbl.search_result_selections} show_term={"F"}
                                 crs_solo_sections_map={stbl.search_crs_solo_sections_map} crs_exclude_sections_map={stbl.search_crs_exclude_sections_map}
                                 onSelectionIndicesChanged={this.handleSelectionIndicesChanged}
@@ -851,7 +876,7 @@ class App extends React.Component<AppProps, AppState> {
                                 showLockExcludeBtns={this.state.setting_showLockExcludeBtn}
                             />
                         </Tabs.TabPane>
-                        <Tabs.TabPane tab="Winter" key="S">
+                        <Tabs.TabPane tab={crsSearchStore.cur_session.endsWith('9') ? "Winter" : "Term 2"} key="S">
                             <SchedDisp crs_selections_groups={sectionsList} crs_selections_indices={stbl.search_result_selections} show_term={"S"}
                                 crs_solo_sections_map={stbl.search_crs_solo_sections_map} crs_exclude_sections_map={stbl.search_crs_exclude_sections_map}
                                 onSelectionIndicesChanged={this.handleSelectionIndicesChanged}
@@ -872,7 +897,6 @@ class App extends React.Component<AppProps, AppState> {
                     </Tabs>
 
                 </div>
-
             </div >
         );
     }

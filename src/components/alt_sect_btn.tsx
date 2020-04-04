@@ -2,6 +2,7 @@ import * as React from "react";
 import { Button, Popover } from 'antd';
 import { CourseSelection, Timeslot } from "./course";
 import "./../assets/scss/alt_sect_btn.scss";
+import { EllipsisOutlined } from "@ant-design/icons";
 
 interface ASBProps {
     onSectionSelected?: (idx: number, crs_sel: CourseSelection) => void;
@@ -82,7 +83,7 @@ export class AlternateSectionButton extends React.Component<ASBProps, ASBState> 
                     onMouseOver={(evt) => { this.setState({ btnHover: true }); }}
                     onMouseLeave={(evt) => { this.setState({ btnHover: false }); }}
                 >
-                    <Button type="dashed" shape="circle" icon="ellipsis"
+                    <Button type="dashed" shape="circle" icon={<EllipsisOutlined />}
                         className={btnStyle}
                     />
                 </div>

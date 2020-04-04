@@ -253,6 +253,7 @@ export class crsdb {
      * Returns a list of available sessions.
      * 
      * Return the current session, and next session.
+     * 
      * */
     static session_list(): string[] {
         let dmx = new Date();

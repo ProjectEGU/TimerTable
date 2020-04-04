@@ -1,9 +1,10 @@
 import { Course, CourseSelection, CourseSection, Timeslot } from "./course";
-import { DLXMatrix, Solution as DLXSolution } from "./dlxmatrix"
+import { DLXMatrix, Solution as DLXSolution, DLXEvaluator, DLXIterationAction } from "./dlxmatrix"
 import { string } from "prop-types";
 import { AssertionError } from "assert";
 import { crsdb } from "./crsdb";
 import { S_IFCHR } from "constants";
+import * as BronKerbosch from '@seregpie/bron-kerbosch';
 
 interface crs_choice {
     crs: Course,
@@ -123,10 +124,22 @@ export class crs_arrange {
         });
         // return result;
     }
-    public static find_sched(crs_list: CourseSelection[], solution_limit: number,
-        sched_rank_method?: (crs_sel_grps: CourseSelection[][]) => number): SchedSearchResult {
+
+    public static find_sched(crs_list: CourseSelection[], solution_limit: number, top_n?: number): SchedSearchResult {
+        let crsSortValueMap = new Map();
+        crs_list.forEach((crsSel: CourseSelection) => {
+            crsSortValueMap.set(
+                crsSel,
+                String(['Y', 'F', 'S'].indexOf(crsSel.crs.course_code[8]))
+                + crsSel.crs.course_code
+                + String(['L', 'T', 'P'].indexOf(crsSel.sec.section_id[0]))
+                + crsSel.sec.section_id);
+        });
+
         // For courses that have no timeslots or are closed, we skip feeding them into the algorithm.
-        crs_list = crs_list.filter(crs_sel => crsdb.is_section_open(crs_sel.sec) && crs_sel.sec.timeslots.length > 0);
+        // then, we order courses by yearly, fall and winter, then suborder by course code
+        crs_list = crs_list.filter(crs_sel => crsdb.is_section_open(crs_sel.sec) && crs_sel.sec.timeslots.length > 0)
+            .sort((a, b) => crsSortValueMap.get(a).localeCompare(crsSortValueMap.get(b)));
 
         if (crs_list.length == 0) return { solutionSet: [], solutionLimitReached: false };
 
@@ -208,8 +221,46 @@ export class crs_arrange {
             grouped_equiv_sections.push(...cur_equiv_grps);
         });
 
-        // console.log(section_groups);
+        /** Cost dict calculations */
+        // calculate cost dict
+        let costDict = new Map();
+        let minPenalty = -Infinity; // all penalties are negative. the 'min penalty' is the penalty with the lowest absolute value 
+        grouped_equiv_sections.forEach(grp => {
+            let score = grp[0].sec.timeslots.map(ts => {
+                let start_time = ts.start_time[0] * 60 + ts.start_time[1];
+                let end_time = ts.end_time[0] * 60 + ts.end_time[1];
+                let penalty = 0;
+                for (let tim = start_time; tim < end_time; tim += 30) {
+                    penalty -= (2260 - Math.round(Math.pow(tim, 1.0)));
+                    //penalty -= Math.round(Math.pow(tim, 1.0));
+                }
+                return penalty;
+            }).reduce((a, b) => a + b)
+            if (grp[0].crs.term == 'Y') 
+                score *= 2; // double Y courses because their timeslots will occur twice, once in fall and once in winter.
+            // score += Number(grp[0].crs.course_code.substr(3,3));
+            // score += Number(grp[0].sec.section_id.substr(3,4)); // ensure nonuniformity
+            if (score > minPenalty) {
+                minPenalty = score;
+            }
+            costDict.set(grp, score);
+        });
+        console.assert([...costDict.values()].every(v => v <= 0), "all costs must be negative");
 
+        // normalize item penalities
+        [...costDict.entries()].forEach((itm) => {
+            costDict.set(itm[0], Math.round((-minPenalty + itm[1]) / 1));
+        });
+
+        // sort rows by least penalty first
+        grouped_equiv_sections.sort((grpA, grpB) => {
+            // return costDict.get(grpB) - costDict.get(grpA);
+            // --- sort by alphabetic order
+            return crsSortValueMap.get(grpA[0]).localeCompare(crsSortValueMap.get(grpB[0]));
+        });
+        console.log(grouped_equiv_sections.map(grp => costDict.get(grp)).join(", "));
+
+        // console.log(section_groups);
         // console.log(grouped_equiv_sections);
 
         // Construct DLX Matrix
@@ -217,6 +268,10 @@ export class crs_arrange {
         let n_secondary_cols = 0;
         let n_rows = grouped_equiv_sections.length;
         let data = []; // 0's can be left as undefined
+
+        // debugging: store header info
+        let colInfo = [];
+        colInfo.length = n_primary_cols;
 
         // Calculate primary columns: required sections
         grouped_equiv_sections.forEach((crs_grp) => {
@@ -227,11 +282,13 @@ export class crs_arrange {
 
             let next_row = [];
             next_row[id_sec_map.get(unique_id).get(sec_type)] = 1;
+            colInfo[id_sec_map.get(unique_id).get(sec_type)] = `${unique_id.substr(-9, 6)} ${sec_type.substr(0, 3)}`;
             data.push(next_row);
         });
 
         // Calculate secondary columns: timeslot exclusions
-        let n_exclusions = 0;
+        let edges = [];
+
         for (let idx1 = 0; idx1 < grouped_equiv_sections.length; idx1++) {
             for (let idx2 = idx1 + 1; idx2 < grouped_equiv_sections.length; idx2++) {
                 // pick the first section from each group of equivalence
@@ -250,26 +307,129 @@ export class crs_arrange {
                 let ts2: Timeslot[] = crsSelB.sec.timeslots;
 
                 if (crsdb.is_timeslots_conflict(ts1, ts2)) {
-                    data[idx1][n_primary_cols + n_exclusions] = 1;
-                    data[idx2][n_primary_cols + n_exclusions] = 1;
-                    n_exclusions += 1;
+                    edges.push([idx1, idx2])
+                    // data[idx1][n_primary_cols + n_exclusions] = 1;
+                    // data[idx2][n_primary_cols + n_exclusions] = 1;
                 }
             }
         }
 
-        n_secondary_cols = n_exclusions;
+        // Clique finding
+        console.time("find cliques");
+        let cliques = BronKerbosch(edges) as number[][];// cliques are fully connected components of a graph
+        console.timeEnd("find cliques");
+        let largeCliquesCount = 0;
+        let cliqueColsSaved = 0;
+        cliques.forEach((cliq, offset) => {
+            cliq.forEach((rowIdx) => {
+                data[rowIdx][n_primary_cols + offset] = 1;
+            });
+            if (cliq.length >= 1) {
+                largeCliquesCount += 1;
+                cliqueColsSaved += (cliq.length * (cliq.length - 1) / 2) - 1;
+            }
+        });
+        n_secondary_cols = cliques.length;
         let n_cols = n_primary_cols + n_secondary_cols;
+        console.log("nontrivial clique count: " + largeCliquesCount);
+        console.log("secondary columns saved: " + cliqueColsSaved);
 
         console.log(`Calculation begins. Matrix Size (row, col): ${n_rows}, ${n_cols} ; n_primary_cols: ${n_primary_cols}; n_secondary_cols: ${n_secondary_cols};`)
 
+
         // Solve the matrix
         let mat: DLXMatrix<CourseSelection[]>
-            = DLXMatrix.Initialize<CourseSelection[]>(n_rows, n_cols, grouped_equiv_sections, data, n_primary_cols);
+            = DLXMatrix.Initialize<CourseSelection[]>(n_rows, n_cols, grouped_equiv_sections, data, n_primary_cols, colInfo);
 
         mat.SetSolutionLimit(solution_limit);
-        mat.Solve(sched_rank_method);
 
+        let YFSDict = new WeakMap<CourseSelection[], string>();
+        grouped_equiv_sections.forEach((crs_grp) => {
+            let crs_sel = crs_grp[0];
+            YFSDict.set(crs_grp, crs_sel.crs.course_code[8]);
+        });
+
+        mat.SetEvaluator({
+            curState: {
+                curScore: 500000,
+
+            },
+            onAddRow: (state, row) => {
+                // assert that rows are added in YFS order
+                let scoreDiff = costDict.get(row);
+                state.curScore += scoreDiff;
+            },
+            onRemoveRow: (state, row) => {
+                let scoreDiff = costDict.get(row);
+                state.curScore -= scoreDiff;
+            },
+            onTerminate: (state) => {
+            },
+            evaluateIteration: (state, kthMaxScore) => {
+                // decides whether to continue, record as solution, or stop
+                return DLXIterationAction.Continue;
+            },
+            onRecordSolution: (state) => {
+                // set the max winter score for the current yearly selections
+            },
+            evaluateScore: (state) => {
+                // return a decreasing score (as rows are added).
+                return state.curScore;
+            }
+        });
+        let solutions = mat.Solve(top_n);
         // Interpret the results
-        return { solutionSet: mat.solutionSet, solutionLimitReached: mat.solutionLimitReached };
+        return { solutionSet: solutions, solutionLimitReached: mat.solutionLimitReached };
     }
 }
+
+/*
+    // evaluator implementation sanity test
+    mat.SetEvaluator({
+        curState: [] as CourseSelection[][],
+        onAddRow: (state, row) => { state.push(row); },
+        onRemoveRow: (state, row) => { console.assert(state.pop() === row, "evaluator sanity check: rows should be added and removed in accordance with LIFO order"); },
+        onTerminate: (state) => { console.assert(state.length === 0, "evaluator sanity check: final size of stack should be 0"); },
+        evaluateIteration: (state) => {
+            return DLXIterationAction.Continue;
+        },
+        evaluateScore: (state) => {
+            return 0;
+        }
+    });
+*/
+/*
+
+        // evaluator & score implementation sanity test
+        mat.SetEvaluator({
+            curState: { solList: [] as CourseSelection[][], scoreList: [] as number[], curScore: 5000 },
+            onAddRow: (state, row) => {
+                state.solList.push(row);
+                let scoreDiff = 0;
+                scoreDiff = row[0].sec.timeslots.map(ts =>
+                -ts.start_time[0] * 60 - ts.start_time[1]
+            ).reduce((a, b) => a + b);
+                state.scoreList.push(state.curScore);
+                state.curScore += scoreDiff;
+            },
+            onRemoveRow: (state, row) => {
+                console.assert(state.solList.pop() === row, "evaluator sanity check: rows should be added and removed in accordance with LIFO order");
+                let scoreDiff = 0;
+                scoreDiff = row[0].sec.timeslots.map(ts =>
+                -ts.start_time[0] * 60 - ts.start_time[1]
+            ).reduce((a, b) => a + b);
+                state.curScore -= scoreDiff;
+                console.assert(state.scoreList.pop() == state.curScore);
+            },
+            onTerminate: (state) => {
+            },
+            evaluateIteration: (state) => {
+                // evaluate score and see if it exceeds the minimum
+                return DLXIterationAction.Continue;
+            },
+            evaluateScore: (state) => {
+                // for each crs, penalize by the start time of each of its sections!
+                return state.curScore;
+            }
+        });
+*/

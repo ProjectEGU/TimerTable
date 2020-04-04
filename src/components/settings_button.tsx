@@ -1,8 +1,9 @@
 import * as React from "react";
-import { Row, Col, Icon, Button, Popover, Checkbox } from 'antd';
+import { Row, Col, Button, Popover, Checkbox } from 'antd';
 import { CourseSection } from "./course";
 import { Campus } from "./crsdb";
 import "./../assets/scss/alt_sect_btn.scss";
+import { SettingOutlined } from "@ant-design/icons";
 
 export interface SettingsInfo {
     selectedCampus: Set<Campus>,
@@ -204,7 +205,7 @@ export class SettingsButton extends React.Component<SettingsProps, SettingsState
                             evt.stopPropagation();
                         }}
                     >
-                        <Icon type="setting" />
+                        <SettingOutlined />
                         Settings
                             </Button>
                 </Popover>
