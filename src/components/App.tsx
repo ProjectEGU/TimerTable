@@ -22,114 +22,6 @@ import { SearchInput, SectionFilterMode, crsSearchStoreFormat } from "./crsSearc
 import crsSearchStore from "./crsSearchStore";
 import { SelectValue } from "antd/lib/select";
 
-/**
- * Jan 22 todo:
- * Priority 1
- * [ ] Sched rank algorithm. sort the schedules by rank.
- *      possible heuristics:
- *          - Prefer shorter days
- *          - Prefer earlier/middle/evening
- *          - Prefer free days
- *      prefilterable restrictions:
- *          - No courses within selected timeslots
- *          - Allow for conflicts of up to 30 mins or more
- *          - Allow for conflict with a specific course
- *          - No more than 3 hours of courses in a row
- *              (can also be no more than 3 hours of lectures)
- *          - At least 1 hour between courses of different campus
- * [X] Toggle courses on/off
- *      [ ] Cache previous search indices
- * [X] save courses with cookies ploX
- * [X] "Block sections" by excluding them, or "Lock" a section.
- *      [X] locking down lecture sections doesn't also mean locking down tutorials or practicals - TEMP FIXED 
- *              - more permanent solution requires to have separate sets for each section type for each course. this ends up to be 3 sets per course.
- *      [ ] group equivalent sections together by color on the right panel display
- *      [ ] show if any type of required section had been fully excluded.
- *      [ ] how to keep the same result while locked ? 
- * [ ] If error with added course (no meeting sections and whatnot) then display a warning.
- * [ ] Better displaying of currently selected campus(es)
- *       [X] Show clear difference between StG and UTM courses.
- * [ ] Use immutable.js
- * [ ] Allow saving of schedules
- * [ ] Allow for selection of sessions
- * 
- * Priority 2
- * [ ] Show hover effect when mouseover course list
- * [ ] Select unoccupied timeslots and find courses to occupy them.
- * [ ] Apply filters to results (on the right)
- * [ ] Show overview of sections in current view
- * [ ] Show helpful links to respective timetables tools (in particular, show coursefinder link under search for "advanced searching options"
- * [ ] Filter or prefer courses by their number of sections: [24L]
- * [ ] Allow temporary disable of selected courses in the bucket ( respective section blocks/prefers will also be disabled )
- * [ ] View schedule in text format / printable format
- * [ ] UI Polishment - theming
- * [ ] Display course info by hours per week.
- * [ ] Refactor code to lift components
- * [ ] cache the "previous search index" for searches.
- *  * [ ] Cached data refreshing / transfer using gzip
- * [ ] implement course exclusion (ie need to take CHM135, it's offered in both semesters, but only need to pick one semester.)
- * Priority 3
- * [ ] Async searches
- * [ ] Searches can auto skip to a predefined result.
- * [ ] !Find courses to fill empty slots.
- * 
- * Algorithmic improvement:
- * [ ] Finding smaller exclusion matrices is the same as finding connected components, and for every connected component, we add a column and set all the rows for nodes in that component to 1.
- * 
- * Oct 14 :
- * - Change timetable display to use position:absolute with nested div
- * - Add course selection button and made it its own component
- * - Implemented settings menu interface and functionality
- *      - Implement search from multiple campuses
- * - Implemented a solution limit to the schedule finding algorithm
- *      - This solution limit, should it be toggled from the options?
- * - Display status of search result in the label above the pagination
- * - Add instructions to overall web page
- * - Add display for date when data was updated
- * 
- * Oct 15 : 
- * X Package for online distribution on github
- * X Change algorithm to support grouping of 'equivalent' sections together into a single search result.
- * X Allow selection of equivalent sections.
- * X Fixed bug in crsdb.is_timeslot_conflict causing course sections with nonzero times to be incorrectly handled
- * X Notification when fail to load data
- * X Switch to winter / fall views if results contain only results in those respective terms, otherwise switch to the 'both' view
- * X Transition on mouseover of timetable slots
- * 
- * Algorithm task:
- * - Pre-compute the mutually exclusive courses prior to the calculation, and display the ones that are in a cycle
- * - Allow separately stepping through fall / winter semesters if there are no yearly courses
- * - Display conflict resolution methods
- * 
- * 
- * Other task :
- * - Make new CSS class for disabling selections, and apply it to parts where appropriate.
- * - Mobile display with menu
- * - Download the courses file as gzip
- * - Replace course list with a 'list' component which will allow removal / modification
- * X Search bar async operation / display
- * - Allow selection of equivalent sections to persist
- * X Replace autocomplete with Select component, with loading display and checked items, as well as menu offset
- *      Scrapped the idea and sticking with Select now.
- * - Optimization of the timetable display (consider changing to div layout to avoid intensive rowspan/colspan calculations)
- * - Improve filtering of 'dead' sections, which cannot be enrolled in for any reason. Find additional criterion for evaluating deadness of courses
- * - Display 'unable to retrieve course data' only once when failing
- * - Highlight course slots on TT when mouse over the respective items in list
- * - Search bar redo: able to add as optional or required course directly from dropdown menu item * - different colors for different courses on the TT
- * - on mobile display, add menu button to scroll to bottom / top when appropriate. also auto scroll to bottom on successful results
- * - on mobile display, add menu icon to collapse or expand that control menu
- * - show a list of selected sections
- * 
- * Longer term goals : 
- * - Automated testing of correctness
- *  - involves writing independent python backtracking calculation tool, which will operate on the same data set
- *  - dump all results in txt format (order-independent) and check for dupes
- * - Selection of constraints 
- *  - Only specific sections of a course to consider
- *  - Remove sections in specific blacklisted timeslots
- *  - Ranking of solutions based on preference
- *  - Any other ideas welcome
- */
 
 interface AppProps {
 
@@ -299,6 +191,9 @@ class App extends React.Component<AppProps, AppState> {
 
         this.crs_updateSearchCrsFilterSections = this.crs_updateSearchCrsFilterSections.bind(this);
 
+        this.crs_doSearch = this.crs_doSearch.bind(this);
+        this.crs_doSearchNew = this.crs_doSearchNew.bind(this);
+
         this.switchToSession = this.switchToSession.bind(this);
 
         this.loadCookie = this.loadCookie.bind(this);
@@ -325,13 +220,13 @@ class App extends React.Component<AppProps, AppState> {
             search_result: [],
             search_result_idx: 0,
 
-            search_result_limit: 1000000,
+            search_result_limit: 0,
 
             setting_showLockExcludeBtn: true,
 
             preload_crs_skeleton_linecount: 0,
 
-            top_solutions_count : 4
+            top_solutions_count: 4
         }
 
         this.initComponents();
@@ -454,13 +349,17 @@ class App extends React.Component<AppProps, AppState> {
 
         this.setState({},
             () => {
-               // this.crs_doSearch();
+                // this.crs_doSearch();
                 this.saveData();
             }
         );
     }
-
-    crs_doSearch() {
+    crs_doSearchNew() {
+        this.crs_doSearch(true);
+    }
+    crs_doSearch(new_method?: boolean) {
+        new_method = new_method === true;
+        
         const stbl: SearchInput = crsSearchStore.search_inputs_tbl.get(crsSearchStore.cur_session);
 
         if (stbl.search_crs_list.length == 0) {
@@ -506,7 +405,7 @@ class App extends React.Component<AppProps, AppState> {
         });
 
         console.time("calculation");
-        let search_result: SchedSearchResult = crs_arrange.find_sched(all_sections, this.state.search_result_limit, this.state.top_solutions_count);
+        let search_result: SchedSearchResult = crs_arrange.find_sched(all_sections, this.state.search_result_limit, this.state.top_solutions_count, new_method);
         console.timeEnd("calculation");
         console.log("total solutions: " + search_result.solutionSet.length);//@@@@@
         // search_result.solutionSet.length = 0;//@@@@@
@@ -770,18 +669,21 @@ class App extends React.Component<AppProps, AppState> {
                                                     stbl.search_result_selections = new Array<number>(this.state.search_result[idx].data.length).fill(0)
                                                     this.setState({
                                                         search_result_idx: idx,
-                                                    }, 
-                                                    () => {console.log(`score at idx ${idx}: ${this.state.search_result[idx].score}`);});
+                                                    },
+                                                        () => { console.log(`score at idx ${idx}: ${this.state.search_result[idx].score}`); });
                                                 }
                                             }}
                                         />
 
                                     </span>
-                                    <span style={{ float: "right" }}>  <Button icon={<SearchOutlined />} onClick={this.crs_doSearch.bind(this)}
-
-                                    >
-                                        Search
-                                   </Button></span>
+                                    <span style={{ float: "right" }}>
+                                        <Button icon={<SearchOutlined />} onClick={this.crs_doSearch as any}>
+                                            Search (old)
+                                        </Button>
+                                        <Button icon={<SearchOutlined />} onClick={this.crs_doSearchNew}>
+                                            Search (new)
+                                        </Button>
+                                    </span>
                                 </div>
                             </Card>
 
@@ -842,9 +744,9 @@ class App extends React.Component<AppProps, AppState> {
                             style={{ userSelect: "none", backgroundColor: '#fff', color: '#999', boxShadow: '0 0 0 1px #d9d9d9 inset' }}
                         />}*/}
                             <InputNumber min={0} max={40} value={this.state.top_solutions_count} onChange={(val) => {
-                                this.setState({top_solutions_count: val});
+                                this.setState({ top_solutions_count: val });
                             }} />
-                           
+
                             <p>This is currently a work in progress.</p>
                         </Collapse.Panel>
                         <Collapse.Panel header="Search" key="3" showArrow={true} >

@@ -11,6 +11,7 @@ export type DLXEvaluator<StateType, RowType> = {
 
     /** called when a row is removed, with the curState as argument*/
     onRemoveRow: (helperState: StateType, row: RowType) => void;
+
     /** called when the algorithm terminates - the state should be reset here*/
     onTerminate: (helperState: StateType) => void;
 
@@ -18,7 +19,9 @@ export type DLXEvaluator<StateType, RowType> = {
     onRecordSolution?: (helperState: StateType) => void;
 
     /** the evaluateIteration function determines if iteration should continue, stop, or if a solution should be marked.
-      it should only make use of the helper state. it doesn't make sense to be processing the current solution set every iteration, as that is too cpu-consuming. */
+     * it should only make use of the helper state. it doesn't make sense to be processing the current solution set every iteration, as that is too cpu-consuming.
+     * 
+     * note: Not implemented by Solve_YFSmod. */
     evaluateIteration?: (helperState: StateType, kthMaxScore: number) => DLXIterationAction;
 
     /**
@@ -81,7 +84,7 @@ export class DLXMatrix<RowType> {
         this.evaluator = evaluator;
     }
 
-    solutionSortFn: (a: Solution<RowType>, b: Solution<RowType>) => number = (a, b) => {
+    solutionSortFn: (a: { score: number }, b: { score: number }) => number = (a, b) => {
         return b.score - a.score;
     }
 
@@ -137,6 +140,7 @@ export class DLXMatrix<RowType> {
             }
             else if (solutionSet.length < top_n) {
                 addToSol(score);
+
                 if (score < kthMaxScore)
                     kthMaxScore = score;
 
@@ -192,7 +196,7 @@ export class DLXMatrix<RowType> {
                     // check if it's worth to continue further.
                     curScore = this.evaluator?.evaluateScore(this.evaluator.curState) || 0;
                     // console.log(solutionSet.map(x => x.score).join(", ") + ": curScore " + curScore);
-                    let iterAction: DLXIterationAction = this.evaluator?.evaluateIteration?.(this.evaluator.curState, kthMaxScore);
+                    let iterAction: DLXIterationAction = this.evaluator?.evaluateIteration?.(this.evaluator.curState, kthMaxScore) || DLXIterationAction.Continue as any;
                     if (iterAction == DLXIterationAction.Prune) {
                         state = DLXState.RECOVER; // if not worth continuing, then go straight to the next row
                         break;
@@ -277,88 +281,243 @@ export class DLXMatrix<RowType> {
 
 
     /**
-   * Solves the current dlx matrix.
-   * 
-   * The output is a list of solutions. 
-   * Each solution is another list of row info objects, originally passed in via the 'rowInfo' param of the Initialize function.
-   */
+    * Solves the current dlx matrix.
+    * 
+    * The output is a list of solutions. 
+    * Each solution is another list of row info objects, originally passed in via the 'rowInfo' param of the Initialize function.
+    * 
+    * By making the following assumptions, we can reduce redundant calculations:
+    *    - The column headers are arranged in YFS order. The YFS category is stored in the 'label' of each column header.
+    *    - The score is compartmentalized into two parts: fall score + winter score
+    *        - Once all yearly sections are decided, the fall score and winter score can be optimized independently of each other.
+    * 
+    * Memoize results from the 2nd semester to avoid re-solving identical subproblems.
+    * 
+    */
     public Solve_YFSmod<FStateType = any, SStateType = any>(fEval: DLXEvaluator<FStateType, RowType>,
         sEval: DLXEvaluator<SStateType, RowType>,
         top_n?: number): Solution<RowType>[] {
 
-        let solutionSet = [];
-        let curSol = [];
+        let solutionSet: Solution<RowType>[] = [];
+        let curSol: DLXNode[] = [];
 
-        let maxScoreValue = -Infinity;
-        let maxScoreObj = null;
+        let kthMaxScore: number = -Infinity;
+        let solutionCount: number = 0; // the number of solutions evaluated
 
-        let solutionCount = 0;
-
+        /**
+         * Return a column header with a term that matches YFS.
+         * If no such column header exists, return null.
+         * */
         let GetColumn_YFS = (root: DLXNode, YFS: String): DLXNode => {
-            console.assert(root.right !== root, "GetColumn called on empty header row");
-
-            let c = root.right;
+            let c = root;
             let m = c;
-
-            let size = -1;//TODO@@
-
-            while (c !== root) {
-                if (c.size < size || size == -1) {
+            let size = -1;
+            while (true) {
+                c = c.right;
+                if (c === root)
+                    break;
+                if (this.colInfo[c.colId] === YFS && (c.size < size || size == -1)) {
                     size = c.size;
                     m = c;
                 }
-
-                c = c.right;
             }
-            return m;
+            return m === root ? null : m;
         }
 
-        let SolveR = (depth: number, YFS: String): void => {
-            // check if the current limit of solutions has been reached
+        let bestWinterSols: { rows: DLXNode[], score: number }[] = [];
+        let winterSolsChecked = false;
+        let nthBestWinterScore = -Infinity;
+
+        let winterSolOffset = -1;
+
+        let addToSol = (newSolution: DLXNode[], newScore) => {
+            let newEntry: RowType[] = [];
+            for (let i = 0; i < newSolution.length; i++) {
+                newEntry.push(newSolution[i].rowInfo);
+            }
+            solutionSet.push({ data: newEntry, score: newScore });
+        }
+        /** Add to solution set, and trim accordingly.
+         */
+        let evaluateSolution = (sol: DLXNode[], score: number) => {
+            // if top_n defined and not yet list length: just add
+            // if top_n defined and list length: add, sort, remove min
+            // if top_n not defined then just add
+            // at the end, if list length < top_n, then sort it
+            console.assert(score >= kthMaxScore, "score must be greater than kth max");
+
+            solutionCount += 1;
+            if (solutionCount % 500000 == 0) console.log(solutionCount);
+
+            if (!top_n) {
+                addToSol(sol, score);
+            }
+            else if (solutionSet.length < top_n) {
+                addToSol(sol, score);
+                if (score < kthMaxScore)
+                    kthMaxScore = score;
+
+                if (solutionSet.length == top_n)
+                    solutionSet.sort(this.solutionSortFn);
+            } else { // top_n && solutionSet.length >= top_n
+                addToSol(sol, score);
+                solutionSet.sort(this.solutionSortFn);
+                solutionSet.length = top_n; // delete last element
+                kthMaxScore = solutionSet[top_n - 1].score;
+            }
             if (this.solutionLimit > 0 && solutionCount >= this.solutionLimit) {
                 this.solutionLimitReached = true;
+            }
+        };
+
+        let SolveR = (depth: number, curYFS: String): void => {
+            if (depth > 100)
+                throw "Recursion limit exceeded";
+            // check if the current limit of solutions has been reached
+            if (this.solutionLimitReached) {
                 return;
             }
 
             // check if there is a column (constraint) to satisfy.
-            if (this.root.right === this.root) {// a solution has been found.
-                solutionCount += 1;
-                if (solutionCount % 500000 == 0) console.log(solutionCount);
-
-                solutionSet.push({ data: curSol.slice(), score: 0 });
-                return;
-            }
-
-            let c = GetColumn_YFS(this.root, YFS); // find a column (constraint) to satisfy.
-            if (c == null) {
+            let c = GetColumn_YFS(this.root, curYFS);
+            if (c === null) {
                 // if all columns for this particular session have been satisfied, then move to next session
+                switch (curYFS) {
+                    case 'Y':
+                        // move into fall
+                        SolveR(depth + 1, 'F');
 
-                return;
+                        // reset winter score after processing all following fall selections
+                        bestWinterSols = [];
+                        nthBestWinterScore = -Infinity;
+                        winterSolsChecked = false;
+                        return;
+                    case 'F':
+                        if (!winterSolsChecked) {
+                            // if no winter scores memoized yet, then derive the winter scores:
+                            // we try to get the top n winter selections based on current yearly selections
+                            winterSolOffset = curSol.length;
+                            SolveR(depth + 1, 'S');
+                            if (bestWinterSols.length == 0) {
+                                nthBestWinterScore = -Infinity;
+                                // there is no winter solution at all (due to conflict with yearly selections)
+                                // so set the winter score to -infinity. this is expected.
+                            } else if (!top_n || bestWinterSols.length < top_n) {
+                                bestWinterSols.sort(this.solutionSortFn); // sort by highest score first
+                                nthBestWinterScore = bestWinterSols[bestWinterSols.length - 1].score;
+                            }
+
+                            winterSolsChecked = true;
+                        }
+
+                        // check current fall score against all the best winter solutions (up to n of them)
+                        // note: bestWinterSols is sorted by descending score
+                        // combine the current fall selections with the top n winter selections (with the current yearly selections fixed)
+                        let curFallScore = fEval.evaluateScore(fEval.curState);
+
+                        for (let i = 0; i < bestWinterSols.length; i++) {
+                            if (curFallScore + bestWinterSols[i].score <= kthMaxScore)
+                                break;
+                            let ns = curSol.concat(bestWinterSols[i].rows);
+                            evaluateSolution(ns, curFallScore + bestWinterSols[i].score);
+                            if (this.solutionLimitReached) 
+                                return;
+                        }
+
+                        return;
+                    case 'S':
+                        console.assert(this.root.right === this.root, "columns must be in YFS order!");
+
+                        let winterScore = sEval.evaluateScore(sEval.curState);
+
+                        if (top_n) {
+                            if (bestWinterSols.length < top_n) {
+                                // if top_n not yet satisfied, push solution and update nthBestScore
+                                let ns = curSol.slice(winterSolOffset);
+                                bestWinterSols.push({ rows: ns, score: winterScore });
+                                if (bestWinterSols.length === top_n) {
+                                    bestWinterSols.sort(this.solutionSortFn);
+                                    nthBestWinterScore = bestWinterSols[bestWinterSols.length - 1].score;
+                                }
+                            }
+                            else if (winterScore > nthBestWinterScore) {
+                                // if the new solution has a better score, push and update nthBestScore
+                                let ns = curSol.slice(winterSolOffset)
+                                bestWinterSols.push({ rows: ns, score: winterScore });
+                                bestWinterSols.sort(this.solutionSortFn);
+                                bestWinterSols.length = top_n;
+                                nthBestWinterScore = bestWinterSols[top_n - 1].score;
+                            }
+                        } else { // !top_n
+                            let ns = curSol.slice(winterSolOffset)
+                            bestWinterSols.push({ rows: ns, score: winterScore });
+                        }
+
+                        return;
+                    default:
+                        console.error("invalid YFS while solving: " + curYFS);
+                        return;
+                }
             }
-
 
             let r = c.down; // find a row which satisfies the current constraint.
+
+            // note: if r === c.down, the below code has no effect.
             DLXMatrix.CoverColumn(c); // kill off this column since the constraint is satisfied.
             while (r !== c) {
+                // ensure we traverse in YFS order
+                console.assert((r.rowInfo as CourseSelection[])[0].crs.term === curYFS,
+                    "YFS column-row mismatch: " + (r.rowInfo as CourseSelection[])[0].crs.term + " " + curYFS);
 
-                curSol.push(r.rowInfo);// push a solution onto the sol stack
-                // kill all columns (constraints) that would be satisfied by choosing this row.
-                // this also removes any rows that satisfy the removed options.
-                let d = r.right;
-                while (r !== d) {
-                    DLXMatrix.CoverColumn(d.col);
-                    d = d.right;
+                if (curYFS === 'Y' || curYFS === 'F') fEval.onAddRow(fEval.curState, r.rowInfo);
+                if (curYFS === 'Y' || curYFS === 'S') sEval.onAddRow(sEval.curState, r.rowInfo);
+
+                // perform pruning
+                let proceedFlag;
+                if (curYFS === 'Y') {
+                    let fScore = fEval.evaluateScore(fEval.curState);
+                    let sScore = sEval.evaluateScore(sEval.curState);
+                    proceedFlag = fScore + sScore > kthMaxScore;
+                } else if (curYFS === 'F') {
+                    let fScore = fEval.evaluateScore(fEval.curState);
+                    let sScore;
+                    if (winterSolsChecked)
+                        sScore = bestWinterSols.length ? bestWinterSols[0].score : -Infinity;
+                    else
+                        sScore = sEval.evaluateScore(sEval.curState);
+                    proceedFlag = fScore + sScore > kthMaxScore;
+                } else if (curYFS === 'S') {
+                    let sScore = sEval.evaluateScore(sEval.curState);
+                    proceedFlag = sScore > nthBestWinterScore;
                 }
-                SolveR(depth + 1); // perform recursion upon this new matrix state
-                // revives all columns / rows that were killed previously.
-                // this must be done in the reverse order as before.
-                d = r.left;
-                while (r !== d) {
-                    DLXMatrix.UncoverColumn(d.col);
-                    d = d.left;
+
+                if (proceedFlag) {
+                    curSol.push(r);// push a solution onto the sol stack
+                    // kill all columns (constraints) that would be satisfied by choosing this row.
+                    // this also removes any rows that satisfy the removed options.
+                    let d = r.right;
+                    while (r !== d) {
+                        DLXMatrix.CoverColumn(d.col);
+                        d = d.right;
+                    }
+
+                    SolveR(depth + 1, curYFS); // perform recursion upon this new matrix state
+
+                    // revives all columns / rows that were killed previously.
+                    // this must be done in the reverse order as before.
+                    d = r.left;
+                    while (r !== d) {
+                        DLXMatrix.UncoverColumn(d.col);
+                        d = d.left;
+                    }
+                    curSol.pop();// pop the current solution off the sol stack
                 }
+
+                if (curYFS === 'Y' || curYFS === 'F') fEval.onRemoveRow(fEval.curState, r.rowInfo);
+                if (curYFS === 'Y' || curYFS === 'S') sEval.onRemoveRow(sEval.curState, r.rowInfo);
+
                 r = r.down;// proceed onto the next row which satisfies the current constraint.
-                curSol.pop();// pop the current solution off the sol stack
+
             }
 
             // restore the column that was covered.
@@ -366,7 +525,10 @@ export class DLXMatrix<RowType> {
         }
 
         SolveR(0, 'Y');
-        console.log(solutionCount);
+
+        // if we never reached the top_n solutions, then sort the solution set
+        if (!top_n || solutionSet.length < top_n)
+            solutionSet.sort(this.solutionSortFn);
         return solutionSet;
     }
 
@@ -418,7 +580,7 @@ export class DLXMatrix<RowType> {
 
         let c = root.right;
         let m = c;
-        /*
+
         let size = -1;
 
         while (c !== root) {
@@ -428,7 +590,7 @@ export class DLXMatrix<RowType> {
             }
 
             c = c.right;
-        }*/
+        }
         return m;
     }
     /**
@@ -492,11 +654,11 @@ export class DLXMatrix<RowType> {
             colList[i].label = "Column Header " + i;
         }
 
-        // debug: print the column labels  @@@@@@
+        /*  // debug: print the column labels  @@@@@@
         console.log(rowInfo.map(x => {
             let y = x as unknown as CourseSelection[];
             return y[0].crs.course_code + " " + y[0].sec.section_id;
-        }).join("\n"));
+        }).join("\n"));*/
         /*  //debug: print the data array @@@@
           let ncrow = 0;
           data.forEach(row => {
@@ -527,7 +689,7 @@ export class DLXMatrix<RowType> {
                     label: rowInfo[rowId],
                     info: rowInfo[rowId]
                 }));
-                // label: `${colId < secondaryColOffset ? "Primary" : "Secondary"} cell at row ${rowId} col ${colId}`
+
                 let i = rowNodes.length - 1; // index of last element of row nodes array
 
                 rowNodes[i].up = rowNodes[i];
@@ -574,8 +736,6 @@ export class DLXMatrix<RowType> {
     public static New2dArray(dim1size: number, dim2size: number): any[][] {
         let output = [];
         for (let i = 0; i < dim1size; i++) {
-            //only need to push new Array() without specifying size.
-            //this is because of the boundless array access leniency property.
             output.push(new Array(dim2size));
         }
         return output;

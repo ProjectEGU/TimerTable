@@ -36,7 +36,9 @@ export class crs_arrange {
          * Two sections are equivalent if:
          * 1. They are from the same course
          * 2. They are the same type (lecture / tutorial / practical)
-         * 3. The meeting times are the exact same. Just the rooms may be different.
+         * 3. The meeting times are the exact same. 
+         * 
+         * Equivalent sections are allowed to have different rooms.
          */
 
         if (secA.crs.unique_id == secB.crs.unique_id && secA.sec.section_id.substr(0, 3) == secB.sec.section_id.substr(0, 3)) {
@@ -49,83 +51,15 @@ export class crs_arrange {
         }
     }
 
-
-
-    // Return true if it's impossible to schedule the two courses together at all.
-    public static is_total_conflict(crsA: Course, crsB: Course): boolean {//TODO
-        let selA = crsdb.list_all_crs_selections(crsA);
-        let selB = crsdb.list_all_crs_selections(crsB);
-
-        // Currently, we run the arrangement algorithm with all of the course's sections
-        let xx = crs_arrange.find_sched(selA.concat(selB), 1).solutionSet;
-        return xx.length == 0;
-    }
-
-    static demarcate_component<T extends { edges: T[], mark: V }, V>(node: T, targetMark: V) {//TODO
-        let nodes_remain: T[] = [];
-        nodes_remain.push(node);
-
-        let iter_limit = 5000;
-
-        while (nodes_remain.length > 0 && iter_limit-- > 0) {
-            let node_cur = nodes_remain.pop();
-            if (node_cur.mark != targetMark) {
-                node_cur.mark = targetMark;
-
-                nodes_remain.push(...node_cur.edges.filter(n => n.mark != targetMark));
-            }
-        }
-
-        if (nodes_remain.length > 0)
-            console.error(`demarcate_component: traversal limit of ${iter_limit} exceeded`);
-    }
-
     public static get_conflict_map(
         crs_list: Course[],
         whitelisted_sections: Map<string, Set<string>>,
         blacklisted_sections: Map<string, Set<string>>): Map<string, number> {
         // TEMP DISABLE DUE TO PERFORMANCE
         return new Map<string, number>();
-
-        // Generate the nodes in the graph
-        let linkmap = crs_list.map(crsObj => ({ crs: crsObj, edges: [], mark: -1 }));
-
-        // Compute the edges in the graph
-        for (let idxA = 0; idxA < linkmap.length - 1; idxA++) {
-            const nodeA = linkmap[idxA];
-            for (let idxB = idxA + 1; idxB < linkmap.length; idxB++) {
-                const nodeB = linkmap[idxB];
-
-                if (this.is_total_conflict(linkmap[idxA].crs, linkmap[idxB].crs)) {
-                    nodeA.edges.push(nodeB);
-                    nodeB.edges.push(nodeA);
-                }
-            }
-        }
-
-        // Demarcate the nodes in the components
-        let componentID = 0;
-        for (let index = 0; index < crs_list.length; index++) {
-            let node = linkmap[index];
-
-            // if a node has no children: it is not a part of any component.
-            // otherwise, if the node hasn't already been marked: mark the node, along with all of its children, to a component id.
-            if (node.edges.length > 0 && node.mark == -1) {
-                this.demarcate_component(node, componentID);
-                componentID += 1;
-            }
-        }
-
-        // Iterate through the graph again and create a dictionary that maps node to an id representing which component they are in.
-        let result = new Map<Course, number>();
-        linkmap.forEach(node => {
-            if (node.mark != -1)
-                result.set(node.crs, node.mark)
-        });
-        // return result;
     }
 
-    public static find_sched(crs_list: CourseSelection[], solution_limit: number, top_n?: number): SchedSearchResult {
+    public static find_sched(crs_list: CourseSelection[], solution_limit: number, top_n?: number, new_method?: boolean): SchedSearchResult {
         let crsSortValueMap = new Map();
         crs_list.forEach((crsSel: CourseSelection) => {
             crsSortValueMap.set(
@@ -192,10 +126,8 @@ export class crs_arrange {
             section_groups[sec_grp_idx].push(crs_sel);
         });
 
-        // console.log(JSON.parse(JSON.stringify((section_groups))));
-
         // Grouped sections based on if they are equivalent
-        // [[SecA], [SecB, SecC]]
+        // Output format example: [[SecA], [SecB, SecC]]
         let grouped_equiv_sections: CourseSelection[][] = [];
         section_groups.forEach((constraint_group) => {
             let cur_equiv_grps = [];
@@ -223,7 +155,7 @@ export class crs_arrange {
 
         /** Cost dict calculations */
         // calculate cost dict
-        let costDict = new Map();
+        let costDict = new Map<CourseSelection[], number>();
         let minPenalty = -Infinity; // all penalties are negative. the 'min penalty' is the penalty with the lowest absolute value 
         grouped_equiv_sections.forEach(grp => {
             let score = grp[0].sec.timeslots.map(ts => {
@@ -236,8 +168,6 @@ export class crs_arrange {
                 }
                 return penalty;
             }).reduce((a, b) => a + b)
-            if (grp[0].crs.term == 'Y') 
-                score *= 2; // double Y courses because their timeslots will occur twice, once in fall and once in winter.
             // score += Number(grp[0].crs.course_code.substr(3,3));
             // score += Number(grp[0].sec.section_id.substr(3,4)); // ensure nonuniformity
             if (score > minPenalty) {
@@ -252,16 +182,11 @@ export class crs_arrange {
             costDict.set(itm[0], Math.round((-minPenalty + itm[1]) / 1));
         });
 
-        // sort rows by least penalty first
+        // sort rows by term, section type, then alphabetic order
         grouped_equiv_sections.sort((grpA, grpB) => {
-            // return costDict.get(grpB) - costDict.get(grpA);
-            // --- sort by alphabetic order
             return crsSortValueMap.get(grpA[0]).localeCompare(crsSortValueMap.get(grpB[0]));
         });
         console.log(grouped_equiv_sections.map(grp => costDict.get(grp)).join(", "));
-
-        // console.log(section_groups);
-        // console.log(grouped_equiv_sections);
 
         // Construct DLX Matrix
         let n_primary_cols = column_id;
@@ -282,7 +207,9 @@ export class crs_arrange {
 
             let next_row = [];
             next_row[id_sec_map.get(unique_id).get(sec_type)] = 1;
-            colInfo[id_sec_map.get(unique_id).get(sec_type)] = `${unique_id.substr(-9, 6)} ${sec_type.substr(0, 3)}`;
+
+            // add term info to column headers for the YFS mod
+            colInfo[id_sec_map.get(unique_id).get(sec_type)] = crs_sel.crs.term; // `${unique_id.substr(-9, 6)} ${sec_type.substr(0, 3)}`;
             data.push(next_row);
         });
 
@@ -349,87 +276,84 @@ export class crs_arrange {
             YFSDict.set(crs_grp, crs_sel.crs.course_code[8]);
         });
 
-        mat.SetEvaluator({
-            curState: {
-                curScore: 500000,
 
+        let fEval = {
+            curState: {
+                curScore: 500000 / 2,
+                rCount: 0, minSco: Infinity, maxSco: -Infinity
             },
             onAddRow: (state, row) => {
                 // assert that rows are added in YFS order
                 let scoreDiff = costDict.get(row);
                 state.curScore += scoreDiff;
+                state.rCount++;
             },
             onRemoveRow: (state, row) => {
                 let scoreDiff = costDict.get(row);
                 state.curScore -= scoreDiff;
+                state.rCount--;
             },
             onTerminate: (state) => {
             },
-            evaluateIteration: (state, kthMaxScore) => {
-                // decides whether to continue, record as solution, or stop
-                return DLXIterationAction.Continue;
+            evaluateScore: (state) => {
+                return state.curScore;
+            }
+        };
+        let sEval = {
+            curState: {
+                curScore: 500000 / 2,
+                rCount: 0, minSco: Infinity, maxSco: -Infinity
             },
-            onRecordSolution: (state) => {
-                // set the max winter score for the current yearly selections
+            onAddRow: (state, row) => {
+                // assert that rows are added in YFS order
+                let scoreDiff = costDict.get(row);
+                state.curScore += scoreDiff;
+                state.rCount++;
+            },
+            onRemoveRow: (state, row) => {
+                let scoreDiff = costDict.get(row);
+                state.curScore -= scoreDiff;
+                state.rCount--;
+            },
+            onTerminate: (state) => {
+            },
+            evaluateScore: (state) => {
+                return state.curScore;
+            }
+        }
+        mat.SetEvaluator({
+            curState: { rCount: 0, minSco: Infinity, maxSco: -Infinity },
+            onAddRow: (state, row) => {
+                let curYFS = YFSDict.get(row);
+                if (curYFS === 'Y' || curYFS === 'F') fEval.onAddRow(fEval.curState, row);
+                if (curYFS === 'Y' || curYFS === 'S') sEval.onAddRow(sEval.curState, row);
+                state.rCount += 1;
+            },
+            onRemoveRow: (state, row) => {
+                let curYFS = YFSDict.get(row);
+                if (curYFS === 'Y' || curYFS === 'F') fEval.onRemoveRow(fEval.curState, row);
+                if (curYFS === 'Y' || curYFS === 'S') sEval.onRemoveRow(sEval.curState, row);
+                state.rCount -= 1;
+            },
+            onTerminate: (state) => {
             },
             evaluateScore: (state) => {
                 // return a decreasing score (as rows are added).
-                return state.curScore;
+                let curScore = fEval.evaluateScore(fEval.curState) + sEval.evaluateScore(sEval.curState);
+                return curScore;
             }
         });
-        let solutions = mat.Solve(top_n);
+
+        let solutions;
+        if (new_method) {
+            solutions = mat.Solve_YFSmod(fEval, sEval, top_n);
+        } else {
+            solutions = mat.Solve(top_n);
+        }
+        if (solutions.length <= 50) {
+            solutions.forEach((s, i) => (console.log("score at idx " + i + ": " + s.score)));
+        }
         // Interpret the results
         return { solutionSet: solutions, solutionLimitReached: mat.solutionLimitReached };
     }
 }
-
-/*
-    // evaluator implementation sanity test
-    mat.SetEvaluator({
-        curState: [] as CourseSelection[][],
-        onAddRow: (state, row) => { state.push(row); },
-        onRemoveRow: (state, row) => { console.assert(state.pop() === row, "evaluator sanity check: rows should be added and removed in accordance with LIFO order"); },
-        onTerminate: (state) => { console.assert(state.length === 0, "evaluator sanity check: final size of stack should be 0"); },
-        evaluateIteration: (state) => {
-            return DLXIterationAction.Continue;
-        },
-        evaluateScore: (state) => {
-            return 0;
-        }
-    });
-*/
-/*
-
-        // evaluator & score implementation sanity test
-        mat.SetEvaluator({
-            curState: { solList: [] as CourseSelection[][], scoreList: [] as number[], curScore: 5000 },
-            onAddRow: (state, row) => {
-                state.solList.push(row);
-                let scoreDiff = 0;
-                scoreDiff = row[0].sec.timeslots.map(ts =>
-                -ts.start_time[0] * 60 - ts.start_time[1]
-            ).reduce((a, b) => a + b);
-                state.scoreList.push(state.curScore);
-                state.curScore += scoreDiff;
-            },
-            onRemoveRow: (state, row) => {
-                console.assert(state.solList.pop() === row, "evaluator sanity check: rows should be added and removed in accordance with LIFO order");
-                let scoreDiff = 0;
-                scoreDiff = row[0].sec.timeslots.map(ts =>
-                -ts.start_time[0] * 60 - ts.start_time[1]
-            ).reduce((a, b) => a + b);
-                state.curScore -= scoreDiff;
-                console.assert(state.scoreList.pop() == state.curScore);
-            },
-            onTerminate: (state) => {
-            },
-            evaluateIteration: (state) => {
-                // evaluate score and see if it exceeds the minimum
-                return DLXIterationAction.Continue;
-            },
-            evaluateScore: (state) => {
-                // for each crs, penalize by the start time of each of its sections!
-                return state.curScore;
-            }
-        });
-*/
