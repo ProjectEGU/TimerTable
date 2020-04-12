@@ -11,7 +11,6 @@ export type DLXEvaluator<StateType, RowType> = {
 
     /** called when a row is removed, with the curState as argument*/
     onRemoveRow: (helperState: StateType, row: RowType) => void;
-
     /** called when the algorithm terminates - the state should be reset here*/
     onTerminate: (helperState: StateType) => void;
 
@@ -140,7 +139,6 @@ export class DLXMatrix<RowType> {
             }
             else if (solutionSet.length < top_n) {
                 addToSol(score);
-
                 if (score < kthMaxScore)
                     kthMaxScore = score;
 

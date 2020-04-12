@@ -226,7 +226,11 @@ class App extends React.Component<AppProps, AppState> {
 
             preload_crs_skeleton_linecount: 0,
 
+<<<<<<< HEAD
             top_solutions_count: 4
+=======
+            top_solutions_count : 4
+>>>>>>> bff375ef621832063b4b8095e67ee8d26fe76e89
         }
 
         this.initComponents();
@@ -349,7 +353,11 @@ class App extends React.Component<AppProps, AppState> {
 
         this.setState({},
             () => {
+<<<<<<< HEAD
                 // this.crs_doSearch();
+=======
+               // this.crs_doSearch();
+>>>>>>> bff375ef621832063b4b8095e67ee8d26fe76e89
                 this.saveData();
             }
         );
@@ -405,7 +413,11 @@ class App extends React.Component<AppProps, AppState> {
         });
 
         console.time("calculation");
+<<<<<<< HEAD
         let search_result: SchedSearchResult = crs_arrange.find_sched(all_sections, this.state.search_result_limit, this.state.top_solutions_count, new_method);
+=======
+        let search_result: SchedSearchResult = crs_arrange.find_sched(all_sections, this.state.search_result_limit, this.state.top_solutions_count);
+>>>>>>> bff375ef621832063b4b8095e67ee8d26fe76e89
         console.timeEnd("calculation");
         console.log("total solutions: " + search_result.solutionSet.length);//@@@@@
         // search_result.solutionSet.length = 0;//@@@@@
@@ -669,13 +681,19 @@ class App extends React.Component<AppProps, AppState> {
                                                     stbl.search_result_selections = new Array<number>(this.state.search_result[idx].data.length).fill(0)
                                                     this.setState({
                                                         search_result_idx: idx,
+<<<<<<< HEAD
                                                     },
                                                         () => { console.log(`score at idx ${idx}: ${this.state.search_result[idx].score}`); });
+=======
+                                                    }, 
+                                                    () => {console.log(`score at idx ${idx}: ${this.state.search_result[idx].score}`);});
+>>>>>>> bff375ef621832063b4b8095e67ee8d26fe76e89
                                                 }
                                             }}
                                         />
 
                                     </span>
+<<<<<<< HEAD
                                     <span style={{ float: "right" }}>
                                         <Button icon={<SearchOutlined />} onClick={this.crs_doSearch as any}>
                                             Search (old)
@@ -684,6 +702,13 @@ class App extends React.Component<AppProps, AppState> {
                                             Search (new)
                                         </Button>
                                     </span>
+=======
+                                    <span style={{ float: "right" }}>  <Button icon={<SearchOutlined />} onClick={this.crs_doSearch.bind(this)}
+
+                                    >
+                                        Search
+                                   </Button></span>
+>>>>>>> bff375ef621832063b4b8095e67ee8d26fe76e89
                                 </div>
                             </Card>
 
@@ -744,9 +769,15 @@ class App extends React.Component<AppProps, AppState> {
                             style={{ userSelect: "none", backgroundColor: '#fff', color: '#999', boxShadow: '0 0 0 1px #d9d9d9 inset' }}
                         />}*/}
                             <InputNumber min={0} max={40} value={this.state.top_solutions_count} onChange={(val) => {
+<<<<<<< HEAD
                                 this.setState({ top_solutions_count: val });
                             }} />
 
+=======
+                                this.setState({top_solutions_count: val});
+                            }} />
+                           
+>>>>>>> bff375ef621832063b4b8095e67ee8d26fe76e89
                             <p>This is currently a work in progress.</p>
                         </Collapse.Panel>
                         <Collapse.Panel header="Search" key="3" showArrow={true} >
