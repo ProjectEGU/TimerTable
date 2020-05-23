@@ -169,7 +169,7 @@ export class SettingsButton extends React.Component<SettingsProps, SettingsState
                                     checked={this.state.curCampusSelection.has(Campus.STG_ARTSCI)}
                                 >St. George</Checkbox>
                             </div>
-
+                            
                             <div>{this.state.settingsValid ? " " : this.state.errorMsg}</div>
 
                             <div style={{ textAlign: "right" }}>

@@ -8,10 +8,10 @@ import { Solution as DLXSolution, DLXMatrix } from "./dlxmatrix"
 import { crsdb, Campus, Campus_Formatted } from "./crsdb"
 import { Course, CourseSection, CourseSectionsDict, Timeslot, CourseSelection } from "./course"
 import SchedDisp from "./sched_disp";
-import { AutoComplete, Button, Card, Tabs, Input, Badge, Collapse, Pagination, Popover, Checkbox, message, Skeleton, Menu, Dropdown, Select, InputNumber } from 'antd';
+import { AutoComplete, Button, Card, Tabs, Input, Badge, Collapse, Pagination, Popover, Checkbox, message, Skeleton, Menu, Dropdown, Select, InputNumber, Radio } from 'antd';
 import { AutoCompleteProps } from "antd/lib/auto-complete";
 import { AssertionError } from "assert";
-import { crs_arrange, SchedSearchResult } from "./schedule";
+import { crs_arrange, SchedSearchResult, DayLengthPreference, TimePreference, SearchPrefs } from "./schedule";
 import { SettingsButton } from "./settings_button";
 
 import { LockTwoTone, MinusCircleFilled, CloseOutlined, LoadingOutlined, UpOutlined, DownOutlined, SearchOutlined } from "@ant-design/icons";
@@ -26,8 +26,6 @@ import { SelectValue } from "antd/lib/select";
 interface AppProps {
 
 }
-
-
 
 interface AppState {
     data_loaded: boolean;
@@ -64,6 +62,7 @@ interface AppCookieSearchTblEntry {
 interface AppCookie {
     search_inputs_tbl: Object; // Map<string, AppCookieSearchTblEntry>
     selected_session: string;
+    searchprefs: SearchPrefs;
 }
 
 
@@ -71,19 +70,17 @@ class App extends React.Component<AppProps, AppState> {
     dropdownRef: React.RefObject<Select<SelectValue>>;
 
     loadCookie(): AppCookie {
-        if (document.cookie == null) return null;
-        let foundCookies = document.cookie.split(";").filter(c => c.startsWith("data="));
-        if (foundCookies.length == 0) return null;
-        if (foundCookies.length != 1) {
-            console.error("More than one data cookie found. Previous saved cookie data is not loaded.");
+        let savedData = localStorage.getItem("data");
+        if (savedData) {
+            return JSON.parse(savedData);
+        } else {
             return null;
         }
-
-        return JSON.parse(atob(foundCookies[0].substr("data=".length)));
     }
 
     saveCookie(obj: AppCookie) {
-        document.cookie = `data=${btoa(JSON.stringify(obj))};`; // setting the cookie will cause silent failure if the character count exceeds the maximum of 4096 on chrome.
+        localStorage.setItem("data", JSON.stringify(obj));
+        return;
     }
 
     parseCookieData() {
@@ -96,7 +93,12 @@ class App extends React.Component<AppProps, AppState> {
             });
             let loadedCookie: AppCookie = this.loadCookie() || {
                 selected_session: crsSearchStore.cur_session,
-                search_inputs_tbl: defaultTbl
+                search_inputs_tbl: defaultTbl,
+                searchprefs: {
+                    dayLengthPreference: DayLengthPreference.NoPreference,
+                    timePreference: TimePreference.NoPreference,
+                    prioritizeFreeDays: false
+                }
             }
 
             crsdb.session_list().forEach((session) => {
@@ -139,11 +141,13 @@ class App extends React.Component<AppProps, AppState> {
                     search_crs_enabled: cookieSesh.crs_enabled,
                     search_crs_sections_filtermode: cookieSesh.crs_sections_filtermode,
                     search_crs_conflict_group_map: new Map<string, string>(), // maps from course to color. if a course is not in the map then it doesn't have a conflict group
-                    search_result_selections: []
+                    search_result_selections: [],
                 });
             });
 
             crsSearchStore.cur_session = loadedCookie.selected_session;
+            crsSearchStore.search_prefs = loadedCookie.searchprefs;
+            this.setState({});
         } catch (error) {
             message.warning("Cookies failed to load. ", 3);
         }
@@ -153,7 +157,8 @@ class App extends React.Component<AppProps, AppState> {
         // convert javascript Maps into plain JS objects, so that they work with JSON.stringify.
         let newCookie: AppCookie = {
             search_inputs_tbl: new Object(),
-            selected_session: crsSearchStore.cur_session
+            selected_session: crsSearchStore.cur_session,
+            searchprefs: crsSearchStore.search_prefs
         };
         for (const session of crsSearchStore.search_inputs_tbl.keys()) {
             let stbl: SearchInput = crsSearchStore.search_inputs_tbl.get(session);
@@ -226,11 +231,7 @@ class App extends React.Component<AppProps, AppState> {
 
             preload_crs_skeleton_linecount: 0,
 
-<<<<<<< HEAD
-            top_solutions_count: 4
-=======
-            top_solutions_count : 4
->>>>>>> bff375ef621832063b4b8095e67ee8d26fe76e89
+            top_solutions_count: 20
         }
 
         this.initComponents();
@@ -320,7 +321,16 @@ class App extends React.Component<AppProps, AppState> {
             search_result: [],
             cur_search_status: null,
         },
-            this.saveData);
+            () => {
+                this.saveData();
+                // temp dropdown fix
+                let dropdownElement = document.querySelector('div .crs-sel-dropdown');
+                if (dropdownElement) {
+                    let boundingRect = (dropdownElement).getBoundingClientRect();
+                    let yOffset = boundingRect.top + boundingRect.height + 4;
+                    (document.querySelector("div .ant-select-dropdown") as HTMLElement).style.top = `${yOffset}px`;
+                }
+            });
     }
 
     crs_removeSearchCrs(crsObj: Course) {
@@ -353,11 +363,7 @@ class App extends React.Component<AppProps, AppState> {
 
         this.setState({},
             () => {
-<<<<<<< HEAD
                 // this.crs_doSearch();
-=======
-               // this.crs_doSearch();
->>>>>>> bff375ef621832063b4b8095e67ee8d26fe76e89
                 this.saveData();
             }
         );
@@ -367,7 +373,7 @@ class App extends React.Component<AppProps, AppState> {
     }
     crs_doSearch(new_method?: boolean) {
         new_method = new_method === true;
-        
+
         const stbl: SearchInput = crsSearchStore.search_inputs_tbl.get(crsSearchStore.cur_session);
 
         if (stbl.search_crs_list.length == 0) {
@@ -413,11 +419,7 @@ class App extends React.Component<AppProps, AppState> {
         });
 
         console.time("calculation");
-<<<<<<< HEAD
-        let search_result: SchedSearchResult = crs_arrange.find_sched(all_sections, this.state.search_result_limit, this.state.top_solutions_count, new_method);
-=======
-        let search_result: SchedSearchResult = crs_arrange.find_sched(all_sections, this.state.search_result_limit, this.state.top_solutions_count);
->>>>>>> bff375ef621832063b4b8095e67ee8d26fe76e89
+        let search_result: SchedSearchResult = crs_arrange.find_sched(all_sections, crsSearchStore.search_prefs, this.state.search_result_limit, this.state.top_solutions_count, new_method);
         console.timeEnd("calculation");
         console.log("total solutions: " + search_result.solutionSet.length);//@@@@@
         // search_result.solutionSet.length = 0;//@@@@@
@@ -615,6 +617,7 @@ class App extends React.Component<AppProps, AppState> {
         let sectionsList = showSearchResults ? this.state.search_result[this.state.search_result_idx].data : [];
 
         let crs_dropdown_open = this.state.crs_search_dropdown_open && dataSource.length > 0;
+
         let sessionSelectorMenuDisplay = (<Dropdown overlay={this.sessionSelectorMenu} trigger={['click']}>
             <div className="session-selector-menu">
                 <p>{crsdb.session_format(crsSearchStore.cur_session)} <DownOutlined /> </p>
@@ -681,41 +684,30 @@ class App extends React.Component<AppProps, AppState> {
                                                     stbl.search_result_selections = new Array<number>(this.state.search_result[idx].data.length).fill(0)
                                                     this.setState({
                                                         search_result_idx: idx,
-<<<<<<< HEAD
                                                     },
                                                         () => { console.log(`score at idx ${idx}: ${this.state.search_result[idx].score}`); });
-=======
-                                                    }, 
-                                                    () => {console.log(`score at idx ${idx}: ${this.state.search_result[idx].score}`);});
->>>>>>> bff375ef621832063b4b8095e67ee8d26fe76e89
                                                 }
                                             }}
                                         />
 
                                     </span>
-<<<<<<< HEAD
                                     <span style={{ float: "right" }}>
-                                        <Button icon={<SearchOutlined />} onClick={this.crs_doSearch as any}>
+                                        <Button icon={<SearchOutlined />} style={{ display: "inherit" }} onClick={this.crs_doSearch as any}>
                                             Search (old)
                                         </Button>
                                         <Button icon={<SearchOutlined />} onClick={this.crs_doSearchNew}>
-                                            Search (new)
+                                            Search
                                         </Button>
                                     </span>
-=======
-                                    <span style={{ float: "right" }}>  <Button icon={<SearchOutlined />} onClick={this.crs_doSearch.bind(this)}
-
-                                    >
-                                        Search
-                                   </Button></span>
->>>>>>> bff375ef621832063b4b8095e67ee8d26fe76e89
                                 </div>
                             </Card>
 
                             <div className="sel-crs">
                                 <label>Add a course:</label>
                                 <AutoComplete
-                                    ref={this.dropdownRef} open={crs_dropdown_open} size="large"
+                                    ref={this.dropdownRef}
+                                    open={crs_dropdown_open}
+                                    size="large"
                                     style={{ width: "100%" }}
                                     dropdownAlign={{
                                         points: ['tr', 'br'] // align to bottom-right or top-right : https://github.com/ant-design/ant-design/issues/18763
@@ -724,7 +716,7 @@ class App extends React.Component<AppProps, AppState> {
                                     disabled={this.state.data_load_error}
                                     dataSource={dataSource}
                                     placeholder="Enter first 3 letters of course code"
-
+                                    className="crs-sel-dropdown"
                                     onChange={(v) => {
                                         this.setState({
                                             crs_search_str: v.toString(),
@@ -736,7 +728,7 @@ class App extends React.Component<AppProps, AppState> {
                                             crs_search_dropdown_open: false,
                                         });
                                     }}
-                                    onSelect={(a, b) => false}
+                                    onSelect={(a, b) => { }}
                                 >
                                     <Input
                                         onFocus={() => {
@@ -768,17 +760,56 @@ class App extends React.Component<AppProps, AppState> {
                             count={4}
                             style={{ userSelect: "none", backgroundColor: '#fff', color: '#999', boxShadow: '0 0 0 1px #d9d9d9 inset' }}
                         />}*/}
-                            <InputNumber min={0} max={40} value={this.state.top_solutions_count} onChange={(val) => {
-<<<<<<< HEAD
-                                this.setState({ top_solutions_count: val });
-                            }} />
-
-=======
-                                this.setState({top_solutions_count: val});
-                            }} />
-                           
->>>>>>> bff375ef621832063b4b8095e67ee8d26fe76e89
-                            <p>This is currently a work in progress.</p>
+                            <div className="unselectable" style={{ marginTop: "0em", marginBottom: "0em" }}>Solution Count (0 = unlimited):&nbsp;
+                            <InputNumber min={0} max={500} value={this.state.top_solutions_count} onChange={(val) => {
+                                    this.setState({ top_solutions_count: val });
+                                }} />
+                            </div>
+                            <p className="unselectable" style={{ marginTop: "1em", marginBottom: "0em" }}>Time preference</p>
+                            <Radio.Group onChange={(evt) => {
+                                crsSearchStore.search_prefs.timePreference = evt.target.value;
+                                this.setState(
+                                    {},
+                                    () => {
+                                        this.saveData(); // save data to cookies after updating the state.
+                                    }
+                                );
+                            }}
+                                value={crsSearchStore.search_prefs.timePreference}>
+                                <Radio.Button value={TimePreference.NoPreference}>Any</Radio.Button>
+                                <Radio.Button value={TimePreference.Morning}>Morning</Radio.Button>
+                                <Radio.Button value={TimePreference.Noon}>Noon</Radio.Button>
+                                <Radio.Button value={TimePreference.Evening}>Evening</Radio.Button>
+                            </Radio.Group>
+                            <p className="unselectable" style={{ marginTop: "1em", marginBottom: "0em" }}>Day length preference</p>
+                            <Radio.Group onChange={(evt) => {
+                                crsSearchStore.search_prefs.dayLengthPreference = evt.target.value;
+                                this.setState(
+                                    {},
+                                    () => {
+                                        this.saveData(); // save data to cookies after updating the state.
+                                    }
+                                );
+                            }}
+                                value={crsSearchStore.search_prefs.dayLengthPreference}>
+                                <Radio.Button value={DayLengthPreference.NoPreference}>Any</Radio.Button>
+                                <Radio.Button value={DayLengthPreference.Long}>Long days</Radio.Button>
+                                <Radio.Button value={DayLengthPreference.Short}>Short days</Radio.Button>
+                            </Radio.Group>
+                            <p className="unselectable" style={{ marginTop: "1em", marginBottom: "0em" }}></p>
+                            <Checkbox onChange={() => {
+                                crsSearchStore.search_prefs.prioritizeFreeDays = !crsSearchStore.search_prefs.prioritizeFreeDays;
+                                this.setState(
+                                    {},
+                                    () => {
+                                        this.saveData(); // save data to cookies after updating the state.
+                                    }
+                                );
+                            }}
+                                checked={crsSearchStore.search_prefs.prioritizeFreeDays}>
+                                Prioritize free days
+                            </Checkbox>
+                            <p className="unselectable" style={{ marginTop: "1em", marginBottom: "0em" }}>This is currently a work in progress.</p>
                         </Collapse.Panel>
                         <Collapse.Panel header="Search" key="3" showArrow={true} >
 
@@ -830,7 +861,7 @@ class App extends React.Component<AppProps, AppState> {
                     </Tabs>
 
                 </div>
-            </div >
+            </div>
         );
     }
 

@@ -6,6 +6,13 @@
 //
 // Each file will contain a single Course[] 
 
+export const wkday_idx = {
+    "MO": 0,
+    "TU": 1,
+    "WE": 2,
+    "TH": 3,
+    "FR": 4
+}
 export enum CourseSectionType {
     LEC = "LEC",
     PRA = "PRA",

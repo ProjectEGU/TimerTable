@@ -1,4 +1,4 @@
-import { Course, CourseSelection, CourseSection, Timeslot } from "./course";
+import { Course, CourseSelection, CourseSection, Timeslot, wkday_idx } from "./course";
 import { DLXMatrix, Solution as DLXSolution, DLXEvaluator, DLXIterationAction } from "./dlxmatrix"
 import { string } from "prop-types";
 import { AssertionError } from "assert";
@@ -11,6 +11,27 @@ interface crs_choice {
     secs: CourseSection[]
 }
 
+export enum TimePreference {
+    NoPreference,
+    Morning,
+    Noon,
+    Evening
+}
+
+export enum DayLengthPreference {
+    Long,
+    Short,
+    NoPreference
+}
+
+export interface SearchPrefs {
+    timePreference: TimePreference, // map of weekday -> time in [HH, MM] 24-hour format, or null if no preference.
+    dayLengthPreference: DayLengthPreference, // map of weekday -> day length preference
+    prioritizeFreeDays: boolean,
+    // time preference: morning = 9am, afternoon = 12:30pm, evening = 9pm
+    // prioritize free days: yes / no
+    // time between courses: more, less - this is similar to day length
+}
 export interface SchedSearchResult {
     /**
      * The solutionSet is of this format:
@@ -59,12 +80,12 @@ export class crs_arrange {
         return new Map<string, number>();
     }
 
-    public static find_sched(crs_list: CourseSelection[], solution_limit: number, top_n?: number, new_method?: boolean): SchedSearchResult {
+    public static find_sched(crs_list: CourseSelection[], searchprefs: SearchPrefs, solution_limit: number, top_n?: number, new_method?: boolean): SchedSearchResult {
         let crsSortValueMap = new Map();
         crs_list.forEach((crsSel: CourseSelection) => {
             crsSortValueMap.set(
                 crsSel,
-                String(['Y', 'F', 'S'].indexOf(crsSel.crs.course_code[8]))
+                String(['Y', 'F', 'S'].indexOf(crsSel.crs.term))
                 + crsSel.crs.course_code
                 + String(['L', 'T', 'P'].indexOf(crsSel.sec.section_id[0]))
                 + crsSel.sec.section_id);
@@ -128,7 +149,7 @@ export class crs_arrange {
 
         // Grouped sections based on if they are equivalent
         // Output format example: [[SecA], [SecB, SecC]]
-        let grouped_equiv_sections: CourseSelection[][] = [];
+        const grouped_equiv_sections: CourseSelection[][] = [];
         section_groups.forEach((constraint_group) => {
             let cur_equiv_grps = [];
 
@@ -153,40 +174,10 @@ export class crs_arrange {
             grouped_equiv_sections.push(...cur_equiv_grps);
         });
 
-        /** Cost dict calculations */
-        // calculate cost dict
-        let costDict = new Map<CourseSelection[], number>();
-        let minPenalty = -Infinity; // all penalties are negative. the 'min penalty' is the penalty with the lowest absolute value 
-        grouped_equiv_sections.forEach(grp => {
-            let score = grp[0].sec.timeslots.map(ts => {
-                let start_time = ts.start_time[0] * 60 + ts.start_time[1];
-                let end_time = ts.end_time[0] * 60 + ts.end_time[1];
-                let penalty = 0;
-                for (let tim = start_time; tim < end_time; tim += 30) {
-                    penalty -= (2260 - Math.round(Math.pow(tim, 1.0)));
-                    //penalty -= Math.round(Math.pow(tim, 1.0));
-                }
-                return penalty;
-            }).reduce((a, b) => a + b)
-            // score += Number(grp[0].crs.course_code.substr(3,3));
-            // score += Number(grp[0].sec.section_id.substr(3,4)); // ensure nonuniformity
-            if (score > minPenalty) {
-                minPenalty = score;
-            }
-            costDict.set(grp, score);
-        });
-        console.assert([...costDict.values()].every(v => v <= 0), "all costs must be negative");
-
-        // normalize item penalities
-        [...costDict.entries()].forEach((itm) => {
-            costDict.set(itm[0], Math.round((-minPenalty + itm[1]) / 1));
-        });
-
         // sort rows by term, section type, then alphabetic order
         grouped_equiv_sections.sort((grpA, grpB) => {
             return crsSortValueMap.get(grpA[0]).localeCompare(crsSortValueMap.get(grpB[0]));
         });
-        console.log(grouped_equiv_sections.map(grp => costDict.get(grp)).join(", "));
 
         // Construct DLX Matrix
         let n_primary_cols = column_id;
@@ -197,7 +188,7 @@ export class crs_arrange {
         // debugging: store header info
         let colInfo = [];
         colInfo.length = n_primary_cols;
-
+        
         // Calculate primary columns: required sections
         grouped_equiv_sections.forEach((crs_grp) => {
             let crs_sel = crs_grp[0];
@@ -270,85 +261,39 @@ export class crs_arrange {
 
         mat.SetSolutionLimit(solution_limit);
 
+
+        let [fEval, sEval] = crs_arrange.create_evaluators(grouped_equiv_sections, searchprefs);
+
         let YFSDict = new WeakMap<CourseSelection[], string>();
         grouped_equiv_sections.forEach((crs_grp) => {
             let crs_sel = crs_grp[0];
-            YFSDict.set(crs_grp, crs_sel.crs.course_code[8]);
+            YFSDict.set(crs_grp, crs_sel.crs.term);
         });
-
-
-        let fEval = {
-            curState: {
-                curScore: 500000 / 2,
-                rCount: 0, minSco: Infinity, maxSco: -Infinity
-            },
-            onAddRow: (state, row) => {
-                // assert that rows are added in YFS order
-                let scoreDiff = costDict.get(row);
-                state.curScore += scoreDiff;
-                state.rCount++;
-            },
-            onRemoveRow: (state, row) => {
-                let scoreDiff = costDict.get(row);
-                state.curScore -= scoreDiff;
-                state.rCount--;
-            },
-            onTerminate: (state) => {
-            },
-            evaluateScore: (state) => {
-                return state.curScore;
-            }
-        };
-        let sEval = {
-            curState: {
-                curScore: 500000 / 2,
-                rCount: 0, minSco: Infinity, maxSco: -Infinity
-            },
-            onAddRow: (state, row) => {
-                // assert that rows are added in YFS order
-                let scoreDiff = costDict.get(row);
-                state.curScore += scoreDiff;
-                state.rCount++;
-            },
-            onRemoveRow: (state, row) => {
-                let scoreDiff = costDict.get(row);
-                state.curScore -= scoreDiff;
-                state.rCount--;
-            },
-            onTerminate: (state) => {
-            },
-            evaluateScore: (state) => {
-                return state.curScore;
-            }
-        }
-        mat.SetEvaluator({
+        let allEval = {
             curState: { rCount: 0, minSco: Infinity, maxSco: -Infinity },
-            onAddRow: (state, row) => {
+            onAddRow: (state, row, coveredRows) => {
                 let curYFS = YFSDict.get(row);
-                if (curYFS === 'Y' || curYFS === 'F') fEval.onAddRow(fEval.curState, row);
-                if (curYFS === 'Y' || curYFS === 'S') sEval.onAddRow(sEval.curState, row);
-                state.rCount += 1;
+                if (curYFS === 'Y' || curYFS === 'F') fEval.onAddRow(fEval.curState, row, coveredRows);
+                if (curYFS === 'Y' || curYFS === 'S') sEval.onAddRow(sEval.curState, row, coveredRows);
             },
-            onRemoveRow: (state, row) => {
+            onRemoveRow: (state, row, coveredRows) => {
                 let curYFS = YFSDict.get(row);
-                if (curYFS === 'Y' || curYFS === 'F') fEval.onRemoveRow(fEval.curState, row);
-                if (curYFS === 'Y' || curYFS === 'S') sEval.onRemoveRow(sEval.curState, row);
-                state.rCount -= 1;
+                if (curYFS === 'Y' || curYFS === 'F') fEval.onRemoveRow(fEval.curState, row, coveredRows);
+                if (curYFS === 'Y' || curYFS === 'S') sEval.onRemoveRow(sEval.curState, row, coveredRows);
             },
             onTerminate: (state) => {
             },
-            evaluateScore: (state) => {
+            evaluateScore: (state, coveredRows) => {
                 // return a decreasing score (as rows are added).
-                let curScore = fEval.evaluateScore(fEval.curState) + sEval.evaluateScore(sEval.curState);
+                let curScore = fEval.evaluateScore(fEval.curState, coveredRows) + sEval.evaluateScore(sEval.curState, coveredRows);
                 return curScore;
             }
-        });
-
+        };
         let solutions;
         if (new_method) {
             solutions = mat.Solve_YFSmod(fEval, sEval, top_n);
         } else {
-            solutions = mat.Solve(top_n);
+            solutions = mat.Solve(allEval, top_n);
         }
         if (solutions.length <= 50) {
             solutions.forEach((s, i) => (console.log("score at idx " + i + ": " + s.score)));
@@ -356,4 +301,202 @@ export class crs_arrange {
         // Interpret the results
         return { solutionSet: solutions, solutionLimitReached: mat.solutionLimitReached };
     }
+    private static create_evaluators(grouped_equiv_sections: CourseSelection[][], options: SearchPrefs): DLXEvaluator<any, any>[] {
+        let centerTime;
+        switch (options.timePreference) {
+            case TimePreference.Morning:
+                centerTime = 9 * 60; // 9 am    
+                break;
+            case TimePreference.Noon:
+                centerTime = 12 * 60; // 12pm
+                break;
+            case TimePreference.Evening:
+                centerTime = 21 * 60; // 9 pm
+                break;
+            default: break;
+        }
+
+        // convert each timeslots' start/end times to total minutes format
+        const section_timeslots = new WeakMap<CourseSelection[], { wkday, start_time, end_time }[]>();
+        grouped_equiv_sections.forEach((crs_grp) => {
+            section_timeslots.set(crs_grp, crs_grp[0].sec.timeslots.map((timeslot) => {
+                return {
+                    wkday: timeslot.weekday,
+                    start_time: timeslot.start_time[0] * 60 + timeslot.start_time[1],
+                    end_time: timeslot.end_time[0] * 60 + timeslot.end_time[1]
+                };
+            }));
+        });
+
+        // calculate time cost dict
+        const timeCostDict = new Map<CourseSelection[], number>();
+        let minPenalty = -Infinity; // all penalties are negative. the 'min penalty' is the penalty with the lowest value
+        // each section's "time cost" is the sum of how much each of its timeslots deviates from the "center time"
+        grouped_equiv_sections.forEach(grp => { // TODO: change to use section_timeslots
+            let score = section_timeslots.get(grp).map(ts => {
+                let { start_time, end_time } = ts;
+                let penalty = 0;
+                for (let tim = start_time; tim < end_time; tim += 15) {
+                    if (centerTime) {
+                        penalty -= Math.abs(Math.round(Math.pow(centerTime - tim, 1.0)));
+                    } else {
+                        penalty = 0;
+                    }
+                }
+                return penalty;
+            }).reduce((a, b) => a + b)
+            // score += Number(grp[0].crs.course_code.substr(3,3));
+            // score += Number(grp[0].sec.section_id.substr(3,4)); // ensure nonuniformity
+            if (score > minPenalty) {
+                minPenalty = score;
+            }
+            timeCostDict.set(grp, score);
+        });
+
+        console.assert([...timeCostDict.values()].every(v => v <= 0), "all costs must be negative");
+
+        // normalize item penalities
+        [...timeCostDict.entries()].forEach((itm) => {
+            timeCostDict.set(itm[0], Math.round((-minPenalty + itm[1]) / 1));
+        });
+
+        console.log(grouped_equiv_sections.map(grp => timeCostDict.get(grp)).join(", "));
+
+        const dayLengthFactor = 15;
+        const occupiedDayPenalty = 100000;
+        const maxTotalDayLength = 24 * 60 * 5;
+        const wkdays = Object.keys(wkday_idx);
+        
+        class MainEvaluator implements DLXEvaluator<any, CourseSelection[]> {
+            constructor() {
+                let wkdayMap = new Map<string, { beginTimes: number[], endTimes: number[] }>();
+
+                this.curState = {
+                    scoreHistory: [0], // for debug
+                    timeScore: 0,
+                    wkdayTimes: wkdayMap,
+                    totalDayLengths: [],
+                    occupiedDayCounts: [],
+                    rowCount: 0,
+                }
+            }
+            curState: any;
+            onAddRow = (state, row) => {
+                const rCount = state.rowCount;
+                let scoreDiff = timeCostDict.get(row);
+                state.timeScore += scoreDiff;
+
+                if (rCount === 0) {
+                    // clear begin/end times
+                    for (const wkday of wkdays) {
+                        state.wkdayTimes.set(wkday, { beginTimes: [], endTimes: [] });
+                    }
+                    // initial begin/end times state
+                    for (const timeslot of section_timeslots.get(row)) {
+                        const { beginTimes, endTimes } = state.wkdayTimes.get(timeslot.wkday);
+                        beginTimes[0] = timeslot.start_time;
+                        endTimes[0] = timeslot.end_time;
+                    }
+                } else {
+                    // copy old start/end times to the new state
+                    for (const wkday of wkdays) {
+                        const { beginTimes, endTimes } = state.wkdayTimes.get(wkday);
+                        beginTimes[rCount] = beginTimes[rCount - 1];
+                        endTimes[rCount] = endTimes[rCount - 1];
+                    }
+
+                    for (const timeslot of section_timeslots.get(row)) {
+                        const { beginTimes, endTimes } = state.wkdayTimes.get(timeslot.wkday);
+                        if (!beginTimes[rCount] && !endTimes[rCount]) {
+                            beginTimes[rCount] = timeslot.start_time;
+                            endTimes[rCount] = timeslot.end_time;
+                        } else {
+                            console.assert(beginTimes[rCount] && endTimes[rCount]);
+                            if (timeslot.start_time < beginTimes[rCount]) {
+                                beginTimes[rCount] = timeslot.start_time;
+                            }
+                            if (timeslot.end_time > endTimes[rCount]) {
+                                endTimes[rCount] = timeslot.end_time;
+                            }
+                        }
+                    }
+
+                }
+
+                // console.log(JSON.stringify([...state.wkdayTimes.entries()]));
+                // recalculate totalDayLength and occupiedDayCount
+                let dayLength = 0;
+                let occupiedDayCount = 0;
+                for (const wkday of wkdays) {
+                    const { beginTimes, endTimes } = state.wkdayTimes.get(wkday);
+                    if (beginTimes[rCount]) {
+                        dayLength += endTimes[rCount] - beginTimes[rCount];
+                        occupiedDayCount += 1;
+
+                        console.assert(dayLength >= 0);
+                    } else {
+                    }
+                }
+                // console.log(rCount, dayLength, occupiedDayCount);
+                state.totalDayLengths[rCount] = dayLength;
+                state.occupiedDayCounts[rCount] = occupiedDayCount;
+
+
+                // note : calcScore is called before rowCount is implemented
+                state.scoreHistory[rCount + 1] = this.calcScore(state); // debug
+
+                console.assert(state.scoreHistory[rCount] >= state.scoreHistory[rCount + 1], "score must be nonincreasing");
+
+                // console.log(JSON.stringify(state.scoreHistory));
+                state.rowCount++;
+            };
+            onRemoveRow = (state, row) => {
+                let scoreDiff = timeCostDict.get(row);
+                state.timeScore -= scoreDiff;
+
+                state.rowCount--;
+            };
+            onTerminate = (helperState: any) => { };
+            evaluateScore = (state) => {
+                return state.scoreHistory[state.rowCount]
+            };
+            calcScore = (state) => {
+
+                const rCount = state.rowCount;
+                let outputScore = state.timeScore;
+                // note : calcScore is called before rowCount is implemented, so no need to subtract 1 from rCount
+                const totalDayLength = state.totalDayLengths[rCount];
+                const occupiedDayCount = state.occupiedDayCounts[rCount];
+                // console.log("rcount" + rCount, JSON.stringify(state.totalDayLengths), JSON.stringify(state.occupiedDayCounts));
+                // console.log(rCount, totalDayLength, occupiedDayCount);
+                if (options.dayLengthPreference === DayLengthPreference.Short) {
+                    // if prioritize short days, penalize score by dayLengthFactor*dayLength
+                    // this means that the higher the totalDayLength, the higher the penalty
+                    const penalty = dayLengthFactor * totalDayLength
+                    console.assert(penalty >= 0);
+                    outputScore -= penalty;
+                } else if (options.dayLengthPreference === DayLengthPreference.Long) {
+                    // if prioritize long days, penalize score by dayLengthFactor*(maxTotalDayLength - totalDayLength). 
+                    // this means that the smaller the totalDayLength, the higher the penalty
+                    const penalty = dayLengthFactor * (maxTotalDayLength - totalDayLength);
+                    console.assert(penalty >= 0);
+                    outputScore -= penalty;
+                }
+
+                if (options.prioritizeFreeDays) {
+                    // if prioritize free days, penalize score occupiedDayPenalty*(occupiedDayCount)
+                    // this meanas the lower the number of free days, the heavier the penalty
+                    const penalty = occupiedDayPenalty * occupiedDayCount;
+                    console.assert(penalty >= 0);
+                    outputScore -= penalty;
+                }
+
+                return outputScore;
+            }
+        }
+        let fEval = new MainEvaluator();
+        let sEval = new MainEvaluator();
+        return [fEval, sEval];
+    }
 }
+

@@ -2,7 +2,7 @@ import { crsdb, Campus, Campus_Formatted } from "./crsdb"
 import { Course, CourseSection, CourseSectionsDict, Timeslot, CourseSelection } from "./course"
 
 import { store, view, batch } from "react-easy-state"
-import { crs_arrange } from "./schedule";
+import { crs_arrange, SearchPrefs, DayLengthPreference, TimePreference } from "./schedule";
 
 export enum SectionFilterMode {
     Solo, // indicates that solely those sections are to be included when searching.
@@ -18,23 +18,26 @@ export interface SearchInput {
 
     search_crs_enabled: boolean[],
     search_crs_sections_filtermode: SectionFilterMode[],
+
 }
+
 export interface crsSearchStoreFormat {
     cur_campus_set: Set<Campus>;
-    cur_session: string;//a string that represents the current session, such as 20199 or 20205
+    cur_session: string; //a string that represents the current session, such as 20199 or 20205
     search_inputs_tbl: Map<string, SearchInput>;
-
+    
+    search_prefs: SearchPrefs;
     addSearchCrs: (crsObj: Course) => void; // add a search course to the current session
     removeSearchCrs: (crsObj: Course) => void; // remove a course from the current session
     updateSearchCrsFilterSections: (targetCrsObj: Course, new_solo_sections: Map<string, Set<string>>, new_exclude_sections: Map<string, Set<string>>) => void;
     toggleCrsIndex: (idx: number) => void;
 }
 
+
 const default_session = "20205";
 
 
 const searchInputsTbl = new Map<string, SearchInput>();
-
 crsdb.session_list().forEach(session => searchInputsTbl.set(session,
     {
         search_crs_list: [],
@@ -44,13 +47,18 @@ crsdb.session_list().forEach(session => searchInputsTbl.set(session,
         // at any point, a course may not have the same course in both solo_sections and exclude_sections
         search_crs_enabled: [],
         search_crs_sections_filtermode: [],
-        search_result_selections: []
+        search_result_selections: [],
     }));
 
 const crsSearchStore = store<crsSearchStoreFormat>({
     cur_campus_set: new Set<Campus>([Campus.UTM, Campus.STG_ARTSCI]),
     cur_session: default_session,
     search_inputs_tbl: searchInputsTbl,
+    search_prefs: {
+        dayLengthPreference: DayLengthPreference.NoPreference,
+        timePreference: TimePreference.NoPreference,
+        prioritizeFreeDays: false
+    },
     addSearchCrs: (crsObj: Course) => {
         let stbl = crsSearchStore.search_inputs_tbl.get(crsSearchStore.cur_session);
 
@@ -113,26 +121,3 @@ const crsSearchStore = store<crsSearchStoreFormat>({
 
 export default crsSearchStore;
 
-
-
-/*
-Note :
-Never use mutable object as a key in a map.
-
-I read an object reference from crsSearchStore's search_crs_list, and tried to use that as a key
-to search_crs_solo_sections_map. The key was a mutable object and wrapped in a Proxy.
-Therefore, it was technically not the same object as any of the keys in search_crs_solo_sections_map.
-
-Better to use the crs_unique_id instead.
-
-Also when checking if a nonproxied course section is in a set of proxied course sections, things will not work.
-
-Therefore, we cannot ever use mutable objects as hashes variables in react-easy-state stores
-*/
-/*
-Why using batch:
-        // to perform a series of updates to mutable objects in the stbl.
-        // the stbl is being "watched" by react-easy-state. any changes to stbl may cause component re-render.
-        // normally updates in quick succession are automatically batched, but for safety reasons:
-        // manually batch these updates together to ensure that a render doesn't happen until all updates are complete.
-*/

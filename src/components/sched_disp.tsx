@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Course, CourseSection, CourseSelection, Timeslot } from "./course";
+import { Course, CourseSection, CourseSelection, Timeslot, wkday_idx } from "./course";
 import "./../assets/scss/sched_disp.scss";
 import { AssertionError } from "assert";
 import { crsdb } from "./crsdb";
@@ -35,14 +35,6 @@ interface SchedDispProps {
 
 interface SchedDispState {
     current_selection?: CourseSelection
-}
-
-let wkday_idx = {
-    "MO": 0,
-    "TU": 1,
-    "WE": 2,
-    "TH": 3,
-    "FR": 4
 }
 
 interface crs_tslot // represents a single timeslot of a course selection

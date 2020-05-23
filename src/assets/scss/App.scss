@@ -46,15 +46,17 @@ body {
   padding-left: 15px;
 
   p {
-    font-weight:bold;
+    font-weight: bold;
     // text-decoration-line: underline;
     color: #7e7e7e;
   }
+
   p:hover {
     text-decoration-line: underline;
     color: #40a9ff;
   }
 }
+
 .ant-tabs-extra-content {
   float: left !important;
 }
@@ -64,9 +66,14 @@ body {
 
 }
 
+.ant-collapse>.ant-collapse-item>.ant-collapse-header {
+  padding-bottom: 4px !important;
+}
+
 .ant-tabs {
   overflow: visible; //show the border of rightmost cell
 }
+
 /*
 .ant-select-dropdown {
   width: auto !important;
@@ -87,7 +94,7 @@ body {
   overflow: hidden;
 }
 
-.ant-collapse .ant-collapse-item-disabled > .ant-collapse-header {
+.ant-collapse .ant-collapse-item-disabled>.ant-collapse-header {
   cursor: initial !important;
 }
 
@@ -102,6 +109,7 @@ body {
 .filtered-section-excluded:hover {
   background-color: rgb(250, 152, 152);
 }
+
 @media screen and (max-width: 700px) {
   .tt-tabs {
     float: left;

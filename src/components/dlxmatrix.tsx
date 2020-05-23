@@ -7,10 +7,10 @@ export type DLXEvaluator<StateType, RowType> = {
     curState: StateType;
 
     /** called when a row is added, with the curState as argument*/
-    onAddRow: (helperState: StateType, row: RowType) => void;
+    onAddRow: (helperState: StateType, row: RowType, coveredRows: ReadonlySet<RowType>) => void;
 
     /** called when a row is removed, with the curState as argument*/
-    onRemoveRow: (helperState: StateType, row: RowType) => void;
+    onRemoveRow: (helperState: StateType, row: RowType, coveredRows: ReadonlySet<RowType>) => void;
     /** called when the algorithm terminates - the state should be reset here*/
     onTerminate: (helperState: StateType) => void;
 
@@ -25,13 +25,11 @@ export type DLXEvaluator<StateType, RowType> = {
 
     /**
      * Returns the given score for the current state.
-     * The score should be always be POSITIVE AND DECREASING as rows are added.
-     * The DECREASING condition is in order to be compatible with the pruning optimzations in the DLX Search Algorithm.
-     * The POSITIVE condition is to take advantage of significant performance gains, 
-     * likely related to a difference in how V8 engine handles JIT for negative numbers comparison vs positive numbers.
+     * The score should be always be nonincreasing as rows are added.
+     * The nonincreasing condition is in order to be compatible with the pruning optimzations in the DLX Search Algorithm.
      * The hook.curState is passed into the current function.
      * */
-    evaluateScore?: (helperState: StateType) => number;
+    evaluateScore?: (helperState: StateType, coveredRows: ReadonlySet<RowType>) => number;
 }
 
 export enum DLXIterationAction {
@@ -75,14 +73,6 @@ export class DLXMatrix<RowType> {
         this.solutionLimit = solution_limit;
     }
 
-    /**
-     * Sets the evaluator for the current DLX matrix.
-     * */
-    evaluator: DLXEvaluator<any, RowType>;
-    public SetEvaluator<StateType = any>(evaluator: DLXEvaluator<StateType, RowType>) {
-        this.evaluator = evaluator;
-    }
-
     solutionSortFn: (a: { score: number }, b: { score: number }) => number = (a, b) => {
         return b.score - a.score;
     }
@@ -95,7 +85,7 @@ export class DLXMatrix<RowType> {
      * 
      * top_n indicates to select the top nth solutions to be output. In this case, the solution limit will act as the maximum number of solutions to consider.
      */
-    public Solve(top_n?: number): Solution<RowType>[] {
+    public Solve<StateType = any>(evaluator?: DLXEvaluator<StateType, RowType>, top_n?: number): Solution<RowType>[] {
         let solutionSet: Array<Solution<RowType>> = new Array<Solution<RowType>>();
         let curSol: Array<RowType> = new Array<RowType>();
 
@@ -107,7 +97,9 @@ export class DLXMatrix<RowType> {
         let selections: DLXNode[] = [];
         let curHeader: DLXNode;
         let curChoice: DLXNode;
-        let curScore = 0
+        let curScore = 0;
+
+        let coveredRows = new Set<RowType>(); 
 
         this.solutionLimitReached = false;
 
@@ -153,7 +145,7 @@ export class DLXMatrix<RowType> {
 
                 // console.log(solutionSet.map(x => x.score).join(", ") + ": added to solution " + curScore + "   new kthMax: " + kthMaxScore);
             }
-            this.evaluator?.onRecordSolution?.(this.evaluator.curState);
+            evaluator?.onRecordSolution?.(evaluator.curState);
             if (this.solutionLimit > 0 && solutionCount >= this.solutionLimit) {
                 this.solutionLimitReached = true;
                 // if the desired solution count is reached, then stop iterating:
@@ -189,12 +181,12 @@ export class DLXMatrix<RowType> {
                     }
 
                     // proceed to choose the row.
-                    this.evaluator?.onAddRow(this.evaluator.curState, curChoice.rowInfo);
+                    evaluator?.onAddRow(evaluator.curState, curChoice.rowInfo, coveredRows);
 
                     // check if it's worth to continue further.
-                    curScore = this.evaluator?.evaluateScore(this.evaluator.curState) || 0;
+                    curScore = evaluator?.evaluateScore(evaluator.curState, coveredRows) || 0;
                     // console.log(solutionSet.map(x => x.score).join(", ") + ": curScore " + curScore);
-                    let iterAction: DLXIterationAction = this.evaluator?.evaluateIteration?.(this.evaluator.curState, kthMaxScore) || DLXIterationAction.Continue as any;
+                    let iterAction: DLXIterationAction = evaluator?.evaluateIteration?.(evaluator.curState, kthMaxScore) || DLXIterationAction.Continue as any;
                     if (iterAction == DLXIterationAction.Prune) {
                         state = DLXState.RECOVER; // if not worth continuing, then go straight to the next row
                         break;
@@ -215,6 +207,12 @@ export class DLXMatrix<RowType> {
                     // kill all columns (constraints) that would be satisfied by choosing this row.
                     // this also removes any rows that satisfy the removed options.
                     for (let pp = curChoice.right; pp !== curChoice; pp = pp.right) {
+                        // add each row to the covered rows
+                        let cRow = pp.col.down;
+                        while (cRow !== pp.col) {
+                            coveredRows.add(cRow.rowInfo);
+                            cRow = cRow.down;
+                        }
                         DLXMatrix.CoverColumn(pp.col);
                     }
 
@@ -250,11 +248,16 @@ export class DLXMatrix<RowType> {
                     // revives all columns / rows that were killed by selecting this row.
                     // this must be done in the reverse order as before.
                     for (let pp = curChoice.left; pp !== curChoice; pp = pp.left) {
+                        let cRow = pp.col.down;
+                        while (cRow !== pp.col) {
+                            coveredRows.delete(cRow.rowInfo); // no assertion that elements are added / removed on 1-to-1 ratio since recover may be called multiple times from solution recording
+                            cRow = cRow.down;
+                        }
                         DLXMatrix.UncoverColumn(pp.col);
                     }
 
                     // move down to the next choice for the current constraint.
-                    this.evaluator?.onRemoveRow(this.evaluator.curState, curChoice.rowInfo);
+                    evaluator?.onRemoveRow(evaluator.curState, curChoice.rowInfo, coveredRows);
                     curChoice = curChoice.down;
                     selections[depth] = curChoice;
 
@@ -262,7 +265,7 @@ export class DLXMatrix<RowType> {
                     state = DLXState.ADVANCE;
                     break;
                 case DLXState.DONE:
-                    this.evaluator?.onTerminate(this.evaluator.curState);
+                    evaluator?.onTerminate(evaluator.curState);
                     terminate = true;
                     break;
                 default:
@@ -271,7 +274,7 @@ export class DLXMatrix<RowType> {
         }
 
         // if we never reached the top_n solutions, then sort the solution set
-        if ((!top_n && this.evaluator?.evaluateScore) || solutionSet.length < top_n)
+        if ((!top_n && evaluator?.evaluateScore) || solutionSet.length < top_n)
             solutionSet.sort(this.solutionSortFn);
 
         return solutionSet;
@@ -301,6 +304,8 @@ export class DLXMatrix<RowType> {
 
         let kthMaxScore: number = -Infinity;
         let solutionCount: number = 0; // the number of solutions evaluated
+
+        let coveredRows: Set<RowType> = new Set<RowType>();
 
         /**
          * Return a column header with a term that matches YFS.
@@ -411,14 +416,14 @@ export class DLXMatrix<RowType> {
                         // check current fall score against all the best winter solutions (up to n of them)
                         // note: bestWinterSols is sorted by descending score
                         // combine the current fall selections with the top n winter selections (with the current yearly selections fixed)
-                        let curFallScore = fEval.evaluateScore(fEval.curState);
+                        let curFallScore = fEval.evaluateScore(fEval.curState, coveredRows);
 
                         for (let i = 0; i < bestWinterSols.length; i++) {
                             if (curFallScore + bestWinterSols[i].score <= kthMaxScore)
                                 break;
                             let ns = curSol.concat(bestWinterSols[i].rows);
                             evaluateSolution(ns, curFallScore + bestWinterSols[i].score);
-                            if (this.solutionLimitReached) 
+                            if (this.solutionLimitReached)
                                 return;
                         }
 
@@ -426,7 +431,7 @@ export class DLXMatrix<RowType> {
                     case 'S':
                         console.assert(this.root.right === this.root, "columns must be in YFS order!");
 
-                        let winterScore = sEval.evaluateScore(sEval.curState);
+                        let winterScore = sEval.evaluateScore(sEval.curState, coveredRows);
 
                         if (top_n) {
                             if (bestWinterSols.length < top_n) {
@@ -467,34 +472,44 @@ export class DLXMatrix<RowType> {
                 console.assert((r.rowInfo as CourseSelection[])[0].crs.term === curYFS,
                     "YFS column-row mismatch: " + (r.rowInfo as CourseSelection[])[0].crs.term + " " + curYFS);
 
-                if (curYFS === 'Y' || curYFS === 'F') fEval.onAddRow(fEval.curState, r.rowInfo);
-                if (curYFS === 'Y' || curYFS === 'S') sEval.onAddRow(sEval.curState, r.rowInfo);
+                if (curYFS === 'Y' || curYFS === 'F') fEval.onAddRow(fEval.curState, r.rowInfo, coveredRows);
+                if (curYFS === 'Y' || curYFS === 'S') sEval.onAddRow(sEval.curState, r.rowInfo, coveredRows);
 
                 // perform pruning
                 let proceedFlag;
                 if (curYFS === 'Y') {
-                    let fScore = fEval.evaluateScore(fEval.curState);
-                    let sScore = sEval.evaluateScore(sEval.curState);
+                    let fScore = fEval.evaluateScore(fEval.curState, coveredRows);
+                    let sScore = sEval.evaluateScore(sEval.curState, coveredRows);
                     proceedFlag = fScore + sScore > kthMaxScore;
                 } else if (curYFS === 'F') {
-                    let fScore = fEval.evaluateScore(fEval.curState);
+                    let fScore = fEval.evaluateScore(fEval.curState, coveredRows);
                     let sScore;
                     if (winterSolsChecked)
                         sScore = bestWinterSols.length ? bestWinterSols[0].score : -Infinity;
                     else
-                        sScore = sEval.evaluateScore(sEval.curState);
+                        sScore = sEval.evaluateScore(sEval.curState, coveredRows);
                     proceedFlag = fScore + sScore > kthMaxScore;
                 } else if (curYFS === 'S') {
-                    let sScore = sEval.evaluateScore(sEval.curState);
+                    let sScore = sEval.evaluateScore(sEval.curState, coveredRows);
                     proceedFlag = sScore > nthBestWinterScore;
                 }
 
                 if (proceedFlag) {
                     curSol.push(r);// push a solution onto the sol stack
+                    // add all rows to the coveredRows set
+
                     // kill all columns (constraints) that would be satisfied by choosing this row.
                     // this also removes any rows that satisfy the removed options.
                     let d = r.right;
                     while (r !== d) {
+                        // add each row to the covered rows
+                        let cRow = d.col.down;
+                        while (cRow !== d.col) {
+                            coveredRows.add(cRow.rowInfo);
+                            cRow = cRow.down;
+                        }
+                        
+                        // cover the column
                         DLXMatrix.CoverColumn(d.col);
                         d = d.right;
                     }
@@ -505,16 +520,24 @@ export class DLXMatrix<RowType> {
                     // this must be done in the reverse order as before.
                     d = r.left;
                     while (r !== d) {
+                        // remove each row from the covered rows
+                        let cRow = d.col.down;
+                        while (cRow !== d.col) {
+                            console.assert(coveredRows.delete(cRow.rowInfo));
+                            cRow = cRow.down;
+                        }
+
+                        // uncover the column
                         DLXMatrix.UncoverColumn(d.col);
                         d = d.left;
                     }
-                    curSol.pop();// pop the current solution off the sol stack
+                    curSol.pop(); // pop the current solution off the sol stack
                 }
 
-                if (curYFS === 'Y' || curYFS === 'F') fEval.onRemoveRow(fEval.curState, r.rowInfo);
-                if (curYFS === 'Y' || curYFS === 'S') sEval.onRemoveRow(sEval.curState, r.rowInfo);
+                if (curYFS === 'Y' || curYFS === 'F') fEval.onRemoveRow(fEval.curState, r.rowInfo, coveredRows);
+                if (curYFS === 'Y' || curYFS === 'S') sEval.onRemoveRow(sEval.curState, r.rowInfo, coveredRows);
 
-                r = r.down;// proceed onto the next row which satisfies the current constraint.
+                r = r.down; // proceed onto the next row which satisfies the current constraint.
 
             }
 
