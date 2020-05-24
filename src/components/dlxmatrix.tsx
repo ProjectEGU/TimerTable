@@ -99,7 +99,7 @@ export class DLXMatrix<RowType> {
         let curChoice: DLXNode;
         let curScore = 0;
 
-        let coveredRows = new Set<RowType>(); 
+        let coveredRows = new Set<RowType>();
 
         this.solutionLimitReached = false;
 
@@ -161,6 +161,14 @@ export class DLXMatrix<RowType> {
                 case DLXState.FORWARD:
                     // find a column (constraint) to satisfy.
                     curHeader = DLXMatrix.GetColumn(this.root);
+
+                    {
+                        let cRow = curHeader.down;
+                        while (cRow !== curHeader) {
+                            coveredRows.add(cRow.rowInfo);
+                            cRow = cRow.down;
+                        }
+                    }
 
                     // kill off this column since the constraint is satisfied.
                     DLXMatrix.CoverColumn(curHeader);
@@ -228,8 +236,15 @@ export class DLXMatrix<RowType> {
                     break;
                 case DLXState.BACKUP:
                     // restore the constraint column that was covered.
+                    {
+                        let cRow = curHeader.up;
+                        while (cRow !== curHeader) {
+                            // no assertion that elements are added / removed on 1-to-1 ratio since recover may be called multiple times from solution recording
+                            coveredRows.delete(cRow.rowInfo); 
+                            cRow = cRow.up;
+                        }
+                    }
                     DLXMatrix.UncoverColumn(curHeader);
-
                     // if the depth is 0 then we have made a full traversal through the matrix.
                     if (depth === 0) {
                         state = DLXState.DONE;
@@ -248,11 +263,13 @@ export class DLXMatrix<RowType> {
                     // revives all columns / rows that were killed by selecting this row.
                     // this must be done in the reverse order as before.
                     for (let pp = curChoice.left; pp !== curChoice; pp = pp.left) {
-                        let cRow = pp.col.down;
+
+                        let cRow = pp.col.up;
                         while (cRow !== pp.col) {
                             coveredRows.delete(cRow.rowInfo); // no assertion that elements are added / removed on 1-to-1 ratio since recover may be called multiple times from solution recording
-                            cRow = cRow.down;
+                            cRow = cRow.up;
                         }
+
                         DLXMatrix.UncoverColumn(pp.col);
                     }
 
@@ -466,11 +483,24 @@ export class DLXMatrix<RowType> {
             let r = c.down; // find a row which satisfies the current constraint.
 
             // note: if r === c.down, the below code has no effect.
-            DLXMatrix.CoverColumn(c); // kill off this column since the constraint is satisfied.
+            DLXMatrix.CoverColumn(c, coveredRows); // kill off this column since the constraint is satisfied.
+
             while (r !== c) {
                 // ensure we traverse in YFS order
                 console.assert((r.rowInfo as CourseSelection[])[0].crs.term === curYFS,
                     "YFS column-row mismatch: " + (r.rowInfo as CourseSelection[])[0].crs.term + " " + curYFS);
+
+                curSol.push(r); // push a row onto the sol stack
+
+                // kill all columns (constraints) that would be satisfied by choosing this row.
+                // this also removes any rows that satisfy the removed options.
+                let d = r.right;
+                while (r !== d) {
+                    // cover the column
+                    DLXMatrix.CoverColumn(d.col, coveredRows);
+                    d = d.right;
+                }
+
 
                 if (curYFS === 'Y' || curYFS === 'F') fEval.onAddRow(fEval.curState, r.rowInfo, coveredRows);
                 if (curYFS === 'Y' || curYFS === 'S') sEval.onAddRow(sEval.curState, r.rowInfo, coveredRows);
@@ -493,46 +523,20 @@ export class DLXMatrix<RowType> {
                     let sScore = sEval.evaluateScore(sEval.curState, coveredRows);
                     proceedFlag = sScore > nthBestWinterScore;
                 }
-
                 if (proceedFlag) {
-                    curSol.push(r);// push a solution onto the sol stack
-                    // add all rows to the coveredRows set
-
-                    // kill all columns (constraints) that would be satisfied by choosing this row.
-                    // this also removes any rows that satisfy the removed options.
-                    let d = r.right;
-                    while (r !== d) {
-                        // add each row to the covered rows
-                        let cRow = d.col.down;
-                        while (cRow !== d.col) {
-                            coveredRows.add(cRow.rowInfo);
-                            cRow = cRow.down;
-                        }
-                        
-                        // cover the column
-                        DLXMatrix.CoverColumn(d.col);
-                        d = d.right;
-                    }
-
                     SolveR(depth + 1, curYFS); // perform recursion upon this new matrix state
-
-                    // revives all columns / rows that were killed previously.
-                    // this must be done in the reverse order as before.
-                    d = r.left;
-                    while (r !== d) {
-                        // remove each row from the covered rows
-                        let cRow = d.col.down;
-                        while (cRow !== d.col) {
-                            console.assert(coveredRows.delete(cRow.rowInfo));
-                            cRow = cRow.down;
-                        }
-
-                        // uncover the column
-                        DLXMatrix.UncoverColumn(d.col);
-                        d = d.left;
-                    }
-                    curSol.pop(); // pop the current solution off the sol stack
                 }
+
+                // revives all columns / rows that were killed previously.
+                // this must be done in the reverse order as before.
+                d = r.left;
+                while (r !== d) {
+                    // uncover the column
+                    DLXMatrix.UncoverColumn(d.col, coveredRows);
+                    d = d.left;
+                }
+
+                curSol.pop(); // pop the current solution off the sol stack
 
                 if (curYFS === 'Y' || curYFS === 'F') fEval.onRemoveRow(fEval.curState, r.rowInfo, coveredRows);
                 if (curYFS === 'Y' || curYFS === 'S') sEval.onRemoveRow(sEval.curState, r.rowInfo, coveredRows);
@@ -542,7 +546,7 @@ export class DLXMatrix<RowType> {
             }
 
             // restore the column that was covered.
-            DLXMatrix.UncoverColumn(c);
+            DLXMatrix.UncoverColumn(c, coveredRows);
         }
 
         SolveR(0, 'Y');
@@ -554,7 +558,7 @@ export class DLXMatrix<RowType> {
     }
 
 
-    private static CoverColumn(c: DLXNode): void {
+    private static CoverColumn(c: DLXNode, coveredRowSet?: Set<any>): void {
         c.right.left = c.left;
         c.left.right = c.right;
 
@@ -563,6 +567,8 @@ export class DLXMatrix<RowType> {
         let r = c.down;
         while (r !== c) {
             r.IsActive = false;
+            coveredRowSet?.add(r.rowInfo);
+
             let d = r.right;
             while (r !== d) {
                 d.up.down = d.down;
@@ -575,7 +581,7 @@ export class DLXMatrix<RowType> {
         }
     }
 
-    private static UncoverColumn(c: DLXNode): void {
+    private static UncoverColumn(c: DLXNode, coveredRowSet?: Set<any>): void {
         c.right.left = c;
         c.left.right = c;
 
@@ -584,6 +590,8 @@ export class DLXMatrix<RowType> {
         let r = c.up;
         while (r !== c) {
             r.IsActive = true;
+            coveredRowSet?.delete(r.rowInfo);
+
             let d = r.left;
             while (r !== d) {
                 d.up.down = d;

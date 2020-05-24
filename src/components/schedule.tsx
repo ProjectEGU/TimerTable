@@ -82,13 +82,30 @@ export class crs_arrange {
 
     public static find_sched(crs_list: CourseSelection[], searchprefs: SearchPrefs, solution_limit: number, top_n?: number, new_method?: boolean): SchedSearchResult {
         let crsSortValueMap = new Map();
+
+        let getHeuristicRanking = (crsSel: CourseSelection): string => {
+            if (crsSel.sec.timeslots.length === 0) return '0';
+            if (searchprefs.dayLengthPreference === DayLengthPreference.Long)
+                //return `${crsSel.sec.timeslots.map(tx => 
+                //    Math.min(20*60 - tx.end_time[0] * 60 + tx.end_time[1], tx.end_time[0] * 60 + tx.end_time[1] - 10*60)).reduce((x, y) => x + y)}`
+                return '0';
+            else if (searchprefs.timePreference === TimePreference.Morning || searchprefs.timePreference === TimePreference.Noon)
+                return `${crsSel.sec.timeslots.map(tx => tx.end_time[0] * 60 + tx.end_time[1]).reduce((x, y) => x + y)}`;
+            else if (searchprefs.timePreference === TimePreference.Evening)
+                return `${crsSel.sec.timeslots.map(tx => 24 * 60 - tx.end_time[0] * 60 + tx.end_time[1]).reduce((x, y) => x + y)}`;
+            else
+                return '0';
+        }
+
         crs_list.forEach((crsSel: CourseSelection) => {
             crsSortValueMap.set(
                 crsSel,
                 String(['Y', 'F', 'S'].indexOf(crsSel.crs.term))
-                + crsSel.crs.course_code
-                + String(['L', 'T', 'P'].indexOf(crsSel.sec.section_id[0]))
-                + crsSel.sec.section_id);
+                + getHeuristicRanking(crsSel).padStart(6, '0')
+                // + crsSel.crs.course_code
+                // + String(['L', 'T', 'P'].indexOf(crsSel.sec.section_id[0]))
+                // + crsSel.sec.section_id
+            );
         });
 
         // For courses that have no timeslots or are closed, we skip feeding them into the algorithm.
@@ -188,7 +205,7 @@ export class crs_arrange {
         // debugging: store header info
         let colInfo = [];
         colInfo.length = n_primary_cols;
-        
+
         // Calculate primary columns: required sections
         grouped_equiv_sections.forEach((crs_grp) => {
             let crs_sel = crs_grp[0];
@@ -234,7 +251,7 @@ export class crs_arrange {
 
         // Clique finding
         console.time("find cliques");
-        let cliques = BronKerbosch(edges) as number[][];// cliques are fully connected components of a graph
+        let cliques = BronKerbosch(edges) as number[][]; // cliques are fully connected components of a graph
         console.timeEnd("find cliques");
         let largeCliquesCount = 0;
         let cliqueColsSaved = 0;
@@ -254,13 +271,11 @@ export class crs_arrange {
 
         console.log(`Calculation begins. Matrix Size (row, col): ${n_rows}, ${n_cols} ; n_primary_cols: ${n_primary_cols}; n_secondary_cols: ${n_secondary_cols};`)
 
-
         // Solve the matrix
         let mat: DLXMatrix<CourseSelection[]>
             = DLXMatrix.Initialize<CourseSelection[]>(n_rows, n_cols, grouped_equiv_sections, data, n_primary_cols, colInfo);
 
         mat.SetSolutionLimit(solution_limit);
-
 
         let [fEval, sEval] = crs_arrange.create_evaluators(grouped_equiv_sections, searchprefs);
 
@@ -289,6 +304,7 @@ export class crs_arrange {
                 return curScore;
             }
         };
+
         let solutions;
         if (new_method) {
             solutions = mat.Solve_YFSmod(fEval, sEval, top_n);
@@ -344,9 +360,8 @@ export class crs_arrange {
                     }
                 }
                 return penalty;
-            }).reduce((a, b) => a + b)
-            // score += Number(grp[0].crs.course_code.substr(3,3));
-            // score += Number(grp[0].sec.section_id.substr(3,4)); // ensure nonuniformity
+            }).reduce((a, b) => a + b);
+
             if (score > minPenalty) {
                 minPenalty = score;
             }
@@ -364,24 +379,76 @@ export class crs_arrange {
 
         const dayLengthFactor = 15;
         const occupiedDayPenalty = 100000;
-        const maxTotalDayLength = 24 * 60 * 5;
+        const maxTotalDayLength = 14 * 60 * 5;
         const wkdays = Object.keys(wkday_idx);
-        
-        class MainEvaluator implements DLXEvaluator<any, CourseSelection[]> {
-            constructor() {
-                let wkdayMap = new Map<string, { beginTimes: number[], endTimes: number[] }>();
 
+        class MainEvaluator implements DLXEvaluator<any, CourseSelection[]> {
+            curState: any;
+            potentialDayLengths: Map<string, {
+                beginTimes: { origObj: CourseSelection[], beginTime: number }[],
+                endTimes: { origObj: CourseSelection[], endTime: number }[]
+            }>;
+
+            constructor(term: string) {
+                // build potential longest times map
+                this.potentialDayLengths = new Map();
+                for (const wkday of wkdays)
+                    this.potentialDayLengths.set(wkday, { beginTimes: [], endTimes: [] });
+
+                for (const grp of grouped_equiv_sections) {
+                    if (grp[0].crs.term !== term && grp[0].crs.term !== 'Y')
+                        continue;
+
+                    let earliestTimes = []; // earliest times for this section, indexed by weekday
+                    let latestTimes = []; // latest times for this section, indexed by weekday
+                    for (const ts of section_timeslots.get(grp)) {
+                        let { start_time, end_time, wkday } = ts;
+
+                        // calc earliest / latest
+                        const wkidx = wkday_idx[wkday];
+                        if (!earliestTimes[wkidx] || start_time < earliestTimes[wkidx])
+                            earliestTimes[wkidx] = start_time;
+                        if (!latestTimes[wkidx] || end_time > latestTimes[wkidx])
+                            latestTimes[wkidx] = end_time;
+
+                    }
+                    // console.log("eT, lT", earliestTimes, latestTimes);
+                    // assign each to the potentialDayLengths map
+                    for (const wkday of wkdays) {
+                        const beginTime = earliestTimes[wkday_idx[wkday]];
+                        const endTime = latestTimes[wkday_idx[wkday]];
+                        if (beginTime || endTime) {
+                            console.assert(beginTime && endTime);
+                            const wkdayObj = this.potentialDayLengths.get(wkday);
+                            wkdayObj.beginTimes.push({ origObj: grp, beginTime: beginTime });
+                            wkdayObj.endTimes.push({ origObj: grp, endTime: endTime });
+                        }
+                    }
+
+                };
+
+                // sort each beginTimes and endTimes in the potentialDayLengths
+                for (const wkday of wkdays) {
+                    const { beginTimes, endTimes } = this.potentialDayLengths.get(wkday);
+                    console.assert(beginTimes.length === endTimes.length);
+                    beginTimes.sort((objA, objB) => objA.beginTime - objB.beginTime);
+                    endTimes.sort((objA, objB) => objB.endTime - objA.endTime);
+                }
+
+                // console.log("potentialDayLengths " + JSON.stringify([...this.potentialDayLengths.entries()]));
+
+                let wkdayMap = new Map<string, { beginTimes: number[], endTimes: number[] }>();
                 this.curState = {
-                    scoreHistory: [0], // for debug
+                    scoreHistory: [0], // cache the earlier scores to avoid recalculating them
                     timeScore: 0,
-                    wkdayTimes: wkdayMap,
+                    wkdayTimes: wkdayMap, // a map of each weekday's start and end times
                     totalDayLengths: [],
+                    potentialDayLengths: [],
                     occupiedDayCounts: [],
                     rowCount: 0,
                 }
             }
-            curState: any;
-            onAddRow = (state, row) => {
+            onAddRow = (state, row, coveredRows: ReadonlySet<CourseSelection[]>) => {
                 const rCount = state.rowCount;
                 let scoreDiff = timeCostDict.get(row);
                 state.timeScore += scoreDiff;
@@ -426,6 +493,7 @@ export class crs_arrange {
                 // console.log(JSON.stringify([...state.wkdayTimes.entries()]));
                 // recalculate totalDayLength and occupiedDayCount
                 let dayLength = 0;
+
                 let occupiedDayCount = 0;
                 for (const wkday of wkdays) {
                     const { beginTimes, endTimes } = state.wkdayTimes.get(wkday);
@@ -434,13 +502,73 @@ export class crs_arrange {
                         occupiedDayCount += 1;
 
                         console.assert(dayLength >= 0);
+                    }
+
+                }
+                // recalculate potentialDayLength
+                let potentialDayLength = 0;
+
+                // console.log(rCount, "--------------");
+                for (const wkday of wkdays) {
+                    const { beginTimes, endTimes } = this.potentialDayLengths.get(wkday);
+                    // console.log("coveredRows", JSON.stringify([...coveredRows.values()].map(x => x[0].sec.section_id)));
+                    // console.log("pDL", wkday, JSON.stringify(beginTimes.map(x => x.beginTime)), JSON.stringify(endTimes.map(x => x.endTime)));
+                    // console.log("pDL(cov)", wkday,
+                      //  JSON.stringify(beginTimes.map(x => coveredRows.has(x.origObj) ? null : x.beginTime)),
+                      //  JSON.stringify(endTimes.map(x => coveredRows.has(x.origObj) ? null : x.endTime)));
+                    let potentialBeginTime, potentialEndTime;
+
+                    // get the earliest potential time for this weekday
+                    // by going through the rows that contribute to this weekday, sorted by start time (ascending),
+                    // and finding the first uncovered element
+                    for (let i = 0; i < beginTimes.length; i++) {
+                        if (!coveredRows.has(beginTimes[i].origObj)) {
+                            potentialBeginTime = beginTimes[i].beginTime;
+                            break;
+                        }
+                    }
+                    // get the latest potential time for this weekday
+                    // by going through the rows that contribute to this weekday, sorted by end time (descending),
+                    // and finding the first uncovered element
+                    for (let i = 0; i < endTimes.length; i++) {
+                        if (!coveredRows.has(endTimes[i].origObj)) {
+                            potentialEndTime = endTimes[i].endTime;
+                            break;
+                        }
+                    }
+
+                    const wkdayInfo = state.wkdayTimes.get(wkday);
+                    let curBeginTime = wkdayInfo.beginTimes[rCount]; // the time that the current day starts, so far
+                    let curEndTime = wkdayInfo.endTimes[rCount]; // the time that the current day ends, so far
+                    // if curBeginTime and curEndTime are undefined then there is currently nothing scheduled for that day
+                    // if potentialBeginTime and potentialEndTime are undefined then there is nothing more that can be scheduled for that day
+                    // console.assert((curBeginTime && curEndTime) || !(curBeginTime || curEndTime));
+                    if (curBeginTime || curEndTime) {
+                        // console.log("a curEnd/curBegin", curEndTime, curBeginTime);
+                        // console.log("b potentialEnd/Begin", potentialEndTime, potentialBeginTime);
+                        if (potentialBeginTime || potentialEndTime) {
+                            console.assert(potentialBeginTime && potentialEndTime);
+                            if (potentialBeginTime < curBeginTime) {
+                                curBeginTime = potentialBeginTime; // temp disable due to performance
+                            }
+                            if (potentialEndTime > curEndTime) {
+                                curEndTime = potentialEndTime;  // temp disable due to performance
+                            }
+                        }
+                        potentialDayLength += curEndTime - curBeginTime;
                     } else {
+                        if (potentialBeginTime || potentialEndTime) {
+                            potentialDayLength += potentialEndTime - potentialBeginTime; // temp disable due to performance
+
+                            // console.log("b potentialEnd/Begin", potentialEndTime, potentialBeginTime);
+                        }
                     }
                 }
+                // console.log(rCount, potentialDayLength);
                 // console.log(rCount, dayLength, occupiedDayCount);
                 state.totalDayLengths[rCount] = dayLength;
                 state.occupiedDayCounts[rCount] = occupiedDayCount;
-
+                state.potentialDayLengths[rCount] = potentialDayLength;
 
                 // note : calcScore is called before rowCount is implemented
                 state.scoreHistory[rCount + 1] = this.calcScore(state); // debug
@@ -458,7 +586,7 @@ export class crs_arrange {
             };
             onTerminate = (helperState: any) => { };
             evaluateScore = (state) => {
-                return state.scoreHistory[state.rowCount]
+                return state.scoreHistory[state.rowCount];
             };
             calcScore = (state) => {
 
@@ -466,19 +594,23 @@ export class crs_arrange {
                 let outputScore = state.timeScore;
                 // note : calcScore is called before rowCount is implemented, so no need to subtract 1 from rCount
                 const totalDayLength = state.totalDayLengths[rCount];
+                const potentialTotalDayLength = state.potentialDayLengths[rCount];
                 const occupiedDayCount = state.occupiedDayCounts[rCount];
+
+
                 // console.log("rcount" + rCount, JSON.stringify(state.totalDayLengths), JSON.stringify(state.occupiedDayCounts));
                 // console.log(rCount, totalDayLength, occupiedDayCount);
                 if (options.dayLengthPreference === DayLengthPreference.Short) {
-                    // if prioritize short days, penalize score by dayLengthFactor*dayLength
+                    // if prioritize short days, penalize score by dayLengthFactor*totalDayLength
                     // this means that the higher the totalDayLength, the higher the penalty
                     const penalty = dayLengthFactor * totalDayLength
                     console.assert(penalty >= 0);
                     outputScore -= penalty;
                 } else if (options.dayLengthPreference === DayLengthPreference.Long) {
-                    // if prioritize long days, penalize score by dayLengthFactor*(maxTotalDayLength - totalDayLength). 
+                    // if prioritize long days, penalize score by dayLengthFactor*(maxTotalDayLength - potentialTotalDayLength). 
                     // this means that the smaller the totalDayLength, the higher the penalty
-                    const penalty = dayLengthFactor * (maxTotalDayLength - totalDayLength);
+                    const penalty = dayLengthFactor * (maxTotalDayLength - potentialTotalDayLength);
+                    // const penalty = dayLengthFactor * (maxTotalDayLength - totalDayLength); // temp substitute for performance
                     console.assert(penalty >= 0);
                     outputScore -= penalty;
                 }
@@ -494,8 +626,8 @@ export class crs_arrange {
                 return outputScore;
             }
         }
-        let fEval = new MainEvaluator();
-        let sEval = new MainEvaluator();
+        let fEval = new MainEvaluator('F');
+        let sEval = new MainEvaluator('S');
         return [fEval, sEval];
     }
 }

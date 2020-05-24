@@ -347,13 +347,13 @@ class App extends React.Component<AppProps, AppState> {
     crs_updateSearchCrsFilterSections(targetCrsObj: Course, new_solo_sections: Map<string, Set<string>>, new_exclude_sections: Map<string, Set<string>>) {
         crsSearchStore.updateSearchCrsFilterSections(targetCrsObj, new_solo_sections, new_exclude_sections);
 
+        // window.setTimeout(()=>this.crs_doSearch(), 200); // perform search again
+        /*this.saveData(); // save data to cookies after updating the state.
         this.setState(
             {},
             () => {
-                this.saveData(); // save data to cookies after updating the state.
-                this.crs_doSearch(); // perform search again
             }
-        );
+        );*/
 
     }
 
@@ -692,7 +692,7 @@ class App extends React.Component<AppProps, AppState> {
 
                                     </span>
                                     <span style={{ float: "right" }}>
-                                        <Button icon={<SearchOutlined />} style={{ display: "inherit" }} onClick={this.crs_doSearch as any}>
+                                        <Button icon={<SearchOutlined />} style={{ display: "none" }} onClick={this.crs_doSearch as any}>
                                             Search (old)
                                         </Button>
                                         <Button icon={<SearchOutlined />} onClick={this.crs_doSearchNew}>
