@@ -85,16 +85,20 @@ export class crs_arrange {
 
         let getHeuristicRanking = (crsSel: CourseSelection): string => {
             if (crsSel.sec.timeslots.length === 0) return '0';
-            if (searchprefs.dayLengthPreference === DayLengthPreference.Long)
-                //return `${crsSel.sec.timeslots.map(tx => 
-                //    Math.min(20*60 - tx.end_time[0] * 60 + tx.end_time[1], tx.end_time[0] * 60 + tx.end_time[1] - 10*60)).reduce((x, y) => x + y)}`
-                return '0';
-            else if (searchprefs.timePreference === TimePreference.Morning || searchprefs.timePreference === TimePreference.Noon)
-                return `${crsSel.sec.timeslots.map(tx => tx.end_time[0] * 60 + tx.end_time[1]).reduce((x, y) => x + y)}`;
+            let secScore = 0;
+
+            if (searchprefs.dayLengthPreference === DayLengthPreference.Long) {
+                secScore += crsSel.sec.timeslots.map(tx =>
+                    Math.min(20 * 60 - tx.end_time[0] * 60 + tx.end_time[1],
+                        tx.end_time[0] * 60 + tx.end_time[1] - 9 * 60
+                    )).reduce((x, y) => x + y) ;
+            }
+            if (searchprefs.timePreference === TimePreference.Morning || searchprefs.timePreference === TimePreference.Noon)
+                secScore += 50*crsSel.sec.timeslots.map(tx => tx.end_time[0] * 60 + tx.end_time[1]).reduce((x, y) => x + y);
             else if (searchprefs.timePreference === TimePreference.Evening)
-                return `${crsSel.sec.timeslots.map(tx => 24 * 60 - tx.end_time[0] * 60 + tx.end_time[1]).reduce((x, y) => x + y)}`;
-            else
-                return '0';
+                secScore += 50*crsSel.sec.timeslots.map(tx => 21 * 60 - tx.end_time[0] * 60 + tx.end_time[1]).reduce((x, y) => x + y);
+
+            return secScore.toString();
         }
 
         crs_list.forEach((crsSel: CourseSelection) => {
@@ -514,8 +518,8 @@ export class crs_arrange {
                     // console.log("coveredRows", JSON.stringify([...coveredRows.values()].map(x => x[0].sec.section_id)));
                     // console.log("pDL", wkday, JSON.stringify(beginTimes.map(x => x.beginTime)), JSON.stringify(endTimes.map(x => x.endTime)));
                     // console.log("pDL(cov)", wkday,
-                      //  JSON.stringify(beginTimes.map(x => coveredRows.has(x.origObj) ? null : x.beginTime)),
-                      //  JSON.stringify(endTimes.map(x => coveredRows.has(x.origObj) ? null : x.endTime)));
+                    //  JSON.stringify(beginTimes.map(x => coveredRows.has(x.origObj) ? null : x.beginTime)),
+                    //  JSON.stringify(endTimes.map(x => coveredRows.has(x.origObj) ? null : x.endTime)));
                     let potentialBeginTime, potentialEndTime;
 
                     // get the earliest potential time for this weekday
