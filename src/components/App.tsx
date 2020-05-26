@@ -8,7 +8,7 @@ import { Solution as DLXSolution, DLXMatrix } from "./dlxmatrix"
 import { crsdb, Campus, Campus_Formatted } from "./crsdb"
 import { Course, CourseSection, CourseSectionsDict, Timeslot, CourseSelection } from "./course"
 import SchedDisp from "./sched_disp";
-import { AutoComplete, Button, Card, Tabs, Input, Badge, Collapse, Pagination, Popover, Checkbox, message, Skeleton, Menu, Dropdown, Select, InputNumber, Radio } from 'antd';
+import { AutoComplete, Button, Card, Tabs, Input, Badge, Collapse, Pagination, Popover, Checkbox, message, Skeleton, Menu, Dropdown, Select, InputNumber, Radio, Modal } from 'antd';
 import { AutoCompleteProps } from "antd/lib/auto-complete";
 import { AssertionError } from "assert";
 import { crs_arrange, SchedSearchResult, DayLengthPreference, TimePreference, SearchPrefs } from "./schedule";
@@ -49,6 +49,9 @@ interface AppState {
     preload_crs_skeleton_linecount: number;
 
     top_solutions_count: number;
+
+    scheduleInfoVisible: boolean,
+    scheduleInfoString: string
 }
 
 interface AppCookieSearchTblEntry {
@@ -207,6 +210,8 @@ class App extends React.Component<AppProps, AppState> {
 
         this.loadAvailableSessionData = this.loadAvailableSessionData.bind(this);
 
+        this.showSchedule = this.showSchedule.bind(this);
+
         // Set the state directly. Use props if necessary.
         this.state = {
             data_loaded: false,
@@ -231,7 +236,10 @@ class App extends React.Component<AppProps, AppState> {
 
             preload_crs_skeleton_linecount: 0,
 
-            top_solutions_count: 20
+            top_solutions_count: 20,
+
+            scheduleInfoVisible: false,
+            scheduleInfoString: "",
         }
 
         this.initComponents();
@@ -298,6 +306,50 @@ class App extends React.Component<AppProps, AppState> {
                     data_load_error_reason: err
                 });
             }
+        });
+    }
+
+    showSchedule() {
+        const showSearchResults = this.state.search_result.length > 0;
+        let sectionsList = showSearchResults ? this.state.search_result[this.state.search_result_idx].data : [];
+
+        const stbl: SearchInput = crsSearchStore.search_inputs_tbl.get(crsSearchStore.cur_session);
+        let sectionSelections = stbl.search_result_selections;
+
+        let outputString = "";
+
+        let crsInfos = new Map<string, CourseSelection[]>();
+        if (sectionsList.length > 0) {
+            for (let i = 0; i < sectionsList.length; i++) {
+                let selection = sectionsList[i][sectionSelections[i]];
+                let uid = selection.crs.unique_id;
+                if (!crsInfos.has(uid)) {
+                    crsInfos.set(uid, []);
+                }
+                crsInfos.get(uid).push(selection);
+            }
+        }
+        for(const uid of crsInfos.keys()) {
+            let secList = crsInfos.get(uid);
+            let crsInfo = secList[0].crs;
+            outputString += `${crsInfo.course_code}: ${crsInfo.course_name} [${crsInfo.campus}] \n`;
+            for (const sel of secList) {
+                outputString += `    ${sel.sec.section_id}\n`;
+                for(const ts of sel.sec.timeslots) {
+                    outputString += `        ${ts.weekday} ${SchedDisp.format_timelist(ts.start_time)}`;
+                    outputString += ` - ${SchedDisp.format_timelist(ts.end_time)}`;
+                    outputString += ` @ ${ts.room_name_1} `;
+                    if(ts.room_name_2)
+                        outputString += ` / ${ts.room_name_2}`;
+                    outputString += '\n';
+                }
+
+            }
+            outputString += '\n';
+        }
+        this.setState({
+            scheduleInfoString: outputString,
+            scheduleInfoVisible: true
         });
     }
 
@@ -695,6 +747,20 @@ class App extends React.Component<AppProps, AppState> {
                                         <Button icon={<SearchOutlined />} style={{ display: "none" }} onClick={this.crs_doSearch as any}>
                                             Search (old)
                                         </Button>
+                                        <Button onClick={this.showSchedule}>
+                                            View Schedule
+                                        </Button>
+                                        <Modal
+                                            title="View Schedule"
+                                            visible={this.state.scheduleInfoVisible}
+                                            onOk={e => {this.setState({scheduleInfoVisible:false})}}
+                                            onCancel={e => {this.setState({scheduleInfoVisible:false})}}
+                                            width={720}
+                                        >
+                                            <pre>
+                                                {this.state.scheduleInfoString}
+                                            </pre>
+                                        </Modal>
                                         <Button icon={<SearchOutlined />} onClick={this.crs_doSearchNew}>
                                             Search
                                         </Button>
@@ -811,9 +877,9 @@ class App extends React.Component<AppProps, AppState> {
                             </Checkbox>
                             <p className="unselectable" style={{ marginTop: "1em", marginBottom: "0em" }}>This is currently a work in progress.</p>
                         </Collapse.Panel>
-                        <Collapse.Panel header="Search" key="3" showArrow={true} >
+                        {/*<Collapse.Panel header="Search" key="3" showArrow={true} >
 
-                        </Collapse.Panel>
+                        </Collapse.Panel>*/}
                         <Collapse.Panel header="About" key="4" showArrow={true}>
                             <p>Source Code: <a target="_blank" href="https://github.com/ProjectEGU/TimerTable">View on GitHub</a></p>
                             <p>{this.state.data_loaded ? `Data last updated: ${this.state.data_updated_date}` : "Loading data in progress..."}</p>

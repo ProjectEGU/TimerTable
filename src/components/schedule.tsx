@@ -352,7 +352,7 @@ export class crs_arrange {
         const timeCostDict = new Map<CourseSelection[], number>();
         let minPenalty = -Infinity; // all penalties are negative. the 'min penalty' is the penalty with the lowest value
         // each section's "time cost" is the sum of how much each of its timeslots deviates from the "center time"
-        grouped_equiv_sections.forEach(grp => { // TODO: change to use section_timeslots
+        grouped_equiv_sections.forEach(grp => { 
             let score = section_timeslots.get(grp).map(ts => {
                 let { start_time, end_time } = ts;
                 let penalty = 0;
