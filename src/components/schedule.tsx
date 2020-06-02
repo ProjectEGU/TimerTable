@@ -540,7 +540,7 @@ export class crs_arrange {
                             break;
                         }
                     }
-
+                    
                     const wkdayInfo = state.wkdayTimes.get(wkday);
                     let curBeginTime = wkdayInfo.beginTimes[rCount]; // the time that the current day starts, so far
                     let curEndTime = wkdayInfo.endTimes[rCount]; // the time that the current day ends, so far

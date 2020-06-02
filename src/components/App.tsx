@@ -147,9 +147,12 @@ class App extends React.Component<AppProps, AppState> {
                     search_result_selections: [],
                 });
             });
-
-            crsSearchStore.cur_session = loadedCookie.selected_session;
-            crsSearchStore.search_prefs = loadedCookie.searchprefs;
+            if (crsSearchStore.search_inputs_tbl.has(loadedCookie.selected_session)) {
+                crsSearchStore.cur_session = loadedCookie.selected_session;
+                crsSearchStore.search_prefs = loadedCookie.searchprefs;
+            } else {
+                message.warning("The semester you previously selected is no longer available. ");
+            }
             this.setState({});
         } catch (error) {
             message.warning("Cookies failed to load. ", 3);
@@ -260,11 +263,13 @@ class App extends React.Component<AppProps, AppState> {
         let crsSkeletonLineCount = 0;
         if (cookies != null) {
             crsSkeletonLineCount = cookies.search_inputs_tbl[cookies.selected_session].crs_uids.length;
-            crsSearchStore.cur_session = cookies.selected_session;
+            // crsSearchStore.cur_session = cookies.selected_session;
         }
+        
         this.setState({
             preload_crs_skeleton_linecount: crsSkeletonLineCount
         });
+
     }
 
     /*
@@ -329,17 +334,17 @@ class App extends React.Component<AppProps, AppState> {
                 crsInfos.get(uid).push(selection);
             }
         }
-        for(const uid of crsInfos.keys()) {
+        for (const uid of crsInfos.keys()) {
             let secList = crsInfos.get(uid);
             let crsInfo = secList[0].crs;
             outputString += `${crsInfo.course_code}: ${crsInfo.course_name} [${crsInfo.campus}] \n`;
             for (const sel of secList) {
                 outputString += `    ${sel.sec.section_id}\n`;
-                for(const ts of sel.sec.timeslots) {
+                for (const ts of sel.sec.timeslots) {
                     outputString += `        ${ts.weekday} ${SchedDisp.format_timelist(ts.start_time)}`;
                     outputString += ` - ${SchedDisp.format_timelist(ts.end_time)}`;
                     outputString += ` @ ${ts.room_name_1} `;
-                    if(ts.room_name_2)
+                    if (ts.room_name_2)
                         outputString += ` / ${ts.room_name_2}`;
                     outputString += '\n';
                 }
@@ -534,8 +539,9 @@ class App extends React.Component<AppProps, AppState> {
         );
     }
     public render() {
+        // console.log(crsSearchStore.cur_session);
         const stbl = crsSearchStore.search_inputs_tbl.get(crsSearchStore.cur_session);
-
+        
         if (this.state.data_loaded) {
         }
 
@@ -753,8 +759,8 @@ class App extends React.Component<AppProps, AppState> {
                                         <Modal
                                             title="View Schedule"
                                             visible={this.state.scheduleInfoVisible}
-                                            onOk={e => {this.setState({scheduleInfoVisible:false})}}
-                                            onCancel={e => {this.setState({scheduleInfoVisible:false})}}
+                                            onOk={e => { this.setState({ scheduleInfoVisible: false }) }}
+                                            onCancel={e => { this.setState({ scheduleInfoVisible: false }) }}
                                             width={720}
                                         >
                                             <pre>

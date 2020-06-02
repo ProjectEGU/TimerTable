@@ -39,8 +39,13 @@ export class crsdb {
         let crs_data: Course[] = await fetch(`data/course_data_${campus}_${session}`, { headers: {} }).then(
             (response) => {
                 if (!response.ok) {
-                    throw new Error(response.statusText);
+                    throw new Error(response.statusText + " " + response.status);
                 }
+                /*if (response.status === 404) {
+                    crsdb.crs_store[campus][session] = [];
+                    crsdb.crs_store_prefix[campus][session] = {};
+                    return [];
+                }*/
                 return response.json();
             }
         ).then((data: Course[]) => {
@@ -99,7 +104,7 @@ export class crsdb {
         else return crs_list.filter((x: Course) => x.course_code.toUpperCase().startsWith(crs_code));
     }
 
-    static get_crs_by_uid(unique_id: string) : Course {
+    static get_crs_by_uid(unique_id: string): Course {
         if (!(unique_id in crsdb.crs_unique_id_map)) {
             console.error("get_crs_by_uid: course unique id not found: " + unique_id);
             return null;

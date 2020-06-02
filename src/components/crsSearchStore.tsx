@@ -38,7 +38,7 @@ const default_session = "20205";
 
 
 const searchInputsTbl = new Map<string, SearchInput>();
-crsdb.session_list().forEach(session => searchInputsTbl.set(session,
+crsdb.session_list().forEach(session => {searchInputsTbl.set(session,
     {
         search_crs_list: [],
         search_crs_solo_sections_map: new Map<string, Set<string>>(),
@@ -48,7 +48,7 @@ crsdb.session_list().forEach(session => searchInputsTbl.set(session,
         search_crs_enabled: [],
         search_crs_sections_filtermode: [],
         search_result_selections: [],
-    }));
+    })});
 
 const crsSearchStore = store<crsSearchStoreFormat>({
     cur_campus_set: new Set<Campus>([Campus.UTM, Campus.STG_ARTSCI]),
