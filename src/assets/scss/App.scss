@@ -90,6 +90,7 @@ body {
 
 .tt-tabs {
   position: relative;
+  overflow-x: hidden;
 }
 
 .ant-collapse .ant-collapse-item-disabled>.ant-collapse-header {
