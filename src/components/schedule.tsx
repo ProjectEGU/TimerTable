@@ -21,7 +21,8 @@ export enum TimePreference {
 export enum DayLengthPreference {
     Long,
     Short,
-    NoPreference
+    NoPreference,
+    Long2
 }
 
 export interface SearchPrefs {
@@ -89,23 +90,22 @@ export class crs_arrange {
 
             if (searchprefs.dayLengthPreference === DayLengthPreference.Long) {
                 secScore += crsSel.sec.timeslots.map(tx =>
-                    Math.min(20 * 60 - tx.end_time[0] * 60 + tx.end_time[1],
-                        tx.end_time[0] * 60 + tx.end_time[1] - 9 * 60
-                    )).reduce((x, y) => x + y) ;
+                    Math.min(21 * 60 - tx.end_time[0] * 60 + tx.end_time[1],
+                        tx.start_time[0] * 60 + tx.start_time[1] - 7 * 60
+                    )).reduce((x, y) => x + y);
             }
             if (searchprefs.timePreference === TimePreference.Morning || searchprefs.timePreference === TimePreference.Noon)
-                secScore += 50*crsSel.sec.timeslots.map(tx => tx.end_time[0] * 60 + tx.end_time[1]).reduce((x, y) => x + y);
+                secScore += 50 * crsSel.sec.timeslots.map(tx => tx.end_time[0] * 60 + tx.end_time[1]).reduce((x, y) => x + y);
             else if (searchprefs.timePreference === TimePreference.Evening)
-                secScore += 50*crsSel.sec.timeslots.map(tx => 21 * 60 - tx.end_time[0] * 60 + tx.end_time[1]).reduce((x, y) => x + y);
-
+                secScore += 50 * crsSel.sec.timeslots.map(tx => 21 * 60 - tx.end_time[0] * 60 + tx.end_time[1]).reduce((x, y) => x + y);
+            // console.log(secScore);
             return secScore.toString();
         }
 
         crs_list.forEach((crsSel: CourseSelection) => {
             crsSortValueMap.set(
                 crsSel,
-                String(['Y', 'F', 'S'].indexOf(crsSel.crs.term))
-                + getHeuristicRanking(crsSel).padStart(6, '0')
+                String(['Y', 'F', 'S'].indexOf(crsSel.crs.term)) + getHeuristicRanking(crsSel).padStart(6, '0')
                 // + crsSel.crs.course_code
                 // + String(['L', 'T', 'P'].indexOf(crsSel.sec.section_id[0]))
                 // + crsSel.sec.section_id
@@ -348,20 +348,50 @@ export class crs_arrange {
             }));
         });
 
+        /*
+        * if use long2, penalize each timeslot by minimum of maxEndTime - endTime, startTime - maxStartTime @@@
+
+       
+*/
         // calculate time cost dict
         const timeCostDict = new Map<CourseSelection[], number>();
         let minPenalty = -Infinity; // all penalties are negative. the 'min penalty' is the penalty with the lowest value
         // each section's "time cost" is the sum of how much each of its timeslots deviates from the "center time"
-        grouped_equiv_sections.forEach(grp => { 
+
+        let minStartTimes = [];
+        let maxEndTimes = [];
+        if (options.dayLengthPreference === DayLengthPreference.Long2) {
+            for (const grp of grouped_equiv_sections)
+                for (const ts of grp[0].sec.timeslots) {
+                    let wkidx = wkday_idx[ts.weekday];
+                    let tsStartTime = ts.start_time[0] * 60 + ts.start_time[1];
+                    let tsEndTime = ts.end_time[0] * 60 + ts.end_time[1];
+                    if (!minStartTimes[wkidx] || tsStartTime < minStartTimes[wkidx])
+                        minStartTimes[wkidx] = tsStartTime;
+
+                    if (!maxEndTimes[wkidx] || tsEndTime > maxEndTimes[wkidx])
+                        maxEndTimes[wkidx] = tsEndTime;
+                }
+        }
+
+        grouped_equiv_sections.forEach(grp => {
             let score = section_timeslots.get(grp).map(ts => {
                 let { start_time, end_time } = ts;
                 let penalty = 0;
                 for (let tim = start_time; tim < end_time; tim += 15) {
+                    if (options.dayLengthPreference === DayLengthPreference.Long2) {
+                        for (const ts of grp[0].sec.timeslots) {
+                            let wkidx = wkday_idx[ts.weekday];
+                            penalty -= 10*Math.pow(Math.min(maxEndTimes[wkidx] - ts.end_time[0] * 60 + ts.end_time[1],
+                                ts.start_time[0] * 60 + ts.start_time[1] - minStartTimes[wkidx]
+                            ), 1);
+                            // console.log(penalty);
+                        }
+                    }
                     if (centerTime) {
                         penalty -= Math.abs(Math.round(Math.pow(centerTime - tim, 1.0)));
-                    } else {
-                        penalty = 0;
                     }
+
                 }
                 return penalty;
             }).reduce((a, b) => a + b);
@@ -383,7 +413,7 @@ export class crs_arrange {
 
         const dayLengthFactor = 15;
         const occupiedDayPenalty = 100000;
-        const maxTotalDayLength = 14 * 60 * 5;
+        const maxTotalDayLength = 14 * 60 * 5;//14 * 60 * 5;
         const wkdays = Object.keys(wkday_idx);
 
         class MainEvaluator implements DLXEvaluator<any, CourseSelection[]> {
@@ -400,7 +430,7 @@ export class crs_arrange {
                     this.potentialDayLengths.set(wkday, { beginTimes: [], endTimes: [] });
 
                 for (const grp of grouped_equiv_sections) {
-                    if (grp[0].crs.term !== term && grp[0].crs.term !== 'Y')
+                    if (grp[0].crs.term !== term && grp[0].crs.term !== 'Y') //@@@
                         continue;
 
                     let earliestTimes = []; // earliest times for this section, indexed by weekday
@@ -540,7 +570,7 @@ export class crs_arrange {
                             break;
                         }
                     }
-                    
+
                     const wkdayInfo = state.wkdayTimes.get(wkday);
                     let curBeginTime = wkdayInfo.beginTimes[rCount]; // the time that the current day starts, so far
                     let curEndTime = wkdayInfo.endTimes[rCount]; // the time that the current day ends, so far
@@ -593,7 +623,6 @@ export class crs_arrange {
                 return state.scoreHistory[state.rowCount];
             };
             calcScore = (state) => {
-
                 const rCount = state.rowCount;
                 let outputScore = state.timeScore;
                 // note : calcScore is called before rowCount is implemented, so no need to subtract 1 from rCount

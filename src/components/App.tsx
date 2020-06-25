@@ -21,7 +21,7 @@ import { view, store } from "react-easy-state";
 import { SearchInput, SectionFilterMode, crsSearchStoreFormat } from "./crsSearchStore";
 import crsSearchStore from "./crsSearchStore";
 import { SelectValue } from "antd/lib/select";
-
+import Fuse from "fuse.js"
 
 interface AppProps {
 
@@ -71,6 +71,7 @@ interface AppCookie {
 
 class App extends React.Component<AppProps, AppState> {
     dropdownRef: React.RefObject<Select<SelectValue>>;
+
 
     loadCookie(): AppCookie {
         let savedData = localStorage.getItem("data");
@@ -152,6 +153,7 @@ class App extends React.Component<AppProps, AppState> {
                 crsSearchStore.search_prefs = loadedCookie.searchprefs;
             } else {
                 message.warning("The semester you previously selected is no longer available. ");
+                this.saveData();
             }
             this.setState({});
         } catch (error) {
@@ -215,6 +217,8 @@ class App extends React.Component<AppProps, AppState> {
 
         this.showSchedule = this.showSchedule.bind(this);
 
+        this.handleSearchResultClicked = this.handleSearchResultClicked.bind(this);
+
         // Set the state directly. Use props if necessary.
         this.state = {
             data_loaded: false,
@@ -265,7 +269,7 @@ class App extends React.Component<AppProps, AppState> {
             crsSkeletonLineCount = cookies.search_inputs_tbl[cookies.selected_session].crs_uids.length;
             // crsSearchStore.cur_session = cookies.selected_session;
         }
-        
+
         this.setState({
             preload_crs_skeleton_linecount: crsSkeletonLineCount
         });
@@ -485,7 +489,7 @@ class App extends React.Component<AppProps, AppState> {
             search_status = "no feasible schedules found";
         }
         else if (search_result.solutionLimitReached) {
-            console.assert(search_result.solutionSet.length == this.state.search_result_limit);
+            // console.assert(search_result.solutionSet.length == this.state.search_result_limit);
             search_status = `limit of ${this.state.search_result_limit} schedules reached`;
         } else {
             search_status = `${search_result.solutionSet.length} schedules found`;
@@ -508,10 +512,10 @@ class App extends React.Component<AppProps, AppState> {
         });
     }
 
-    crs_listAllCourses(campus_set: Set<Campus>, session: string, search_str: string): Course[] {
+    crs_searchCourses(campus_set: Set<Campus>, session: string, search_str: string): Fuse.FuseResult<Course>[] {
         let all_results = [];
         campus_set.forEach(campus => {
-            all_results.push(...crsdb.list_crs_by_code(campus, session, search_str));
+            all_results.push(...crsdb.search_crs(campus, session, search_str));
         });
 
         return all_results;
@@ -538,20 +542,50 @@ class App extends React.Component<AppProps, AppState> {
 
         );
     }
+
+    handleSearchResultClicked(evt: React.MouseEvent<HTMLDivElement, MouseEvent>) {
+        evt.preventDefault(); evt.stopPropagation();
+        // this.dropdownRef.current.blur();
+
+        // this.crs_addAllSections(crs);
+        this.crs_addSearchCrs(crsdb.get_crs_by_uid((evt.target as HTMLDivElement).id));
+    };
+
     public render() {
         // console.log(crsSearchStore.cur_session);
         const stbl = crsSearchStore.search_inputs_tbl.get(crsSearchStore.cur_session);
-        
+
         if (this.state.data_loaded) {
         }
 
         let dataSource = [];
 
         if (this.state.data_loaded && this.state.crs_search_str.length > 2) {
-            let crs_results = this.crs_listAllCourses(crsSearchStore.cur_campus_set, crsSearchStore.cur_session, this.state.crs_search_str);
-            dataSource = crs_results.map(crs => {
+            let fuse_results = this.crs_searchCourses(crsSearchStore.cur_campus_set, crsSearchStore.cur_session, this.state.crs_search_str);
+            dataSource = fuse_results.map(fuseResult => {
+                let crs = fuseResult.item;
                 let crs_code = crs.course_code;
                 let crs_title = crs.course_name;
+                let searchResultHighlighted;
+                let matchInfo = fuseResult.matches[0];
+                let matchIndices = fuseResult.matches[0].indices[0];
+
+                if (matchInfo.key === 'course_code') {
+                    searchResultHighlighted = (<>
+                        <span>{crs_code.substring(0, matchIndices[0])}</span>
+                        <span className="search-result-highlighted">{crs_code.substring(matchIndices[0], matchIndices[1] + 1)}</span>
+                        <span>{crs_code.substring(matchIndices[1] + 1)}</span>
+                        <span>: {crs_title}</span></>)
+                } else if (matchInfo.key === 'course_name') {
+                    searchResultHighlighted = (<>
+                        <span>{crs_code}: </span>
+                        <span>{crs_title.substring(0, matchIndices[0])}</span>
+                        <span className="search-result-highlighted">{crs_title.substring(matchIndices[0], matchIndices[1] + 1)}</span>
+                        <span>{crs_title.substring(matchIndices[1] + 1)}</span></>)
+                } else {
+                    console.error("Invalid match key: " + matchInfo.key);
+                    searchResultHighlighted = (<><span>{crs_code}: {crs_title}</span></>)
+                }
                 return (
                     <AutoComplete.Option key={crs_code} value={crs_code} style={{
                         overflow: "hidden",
@@ -565,16 +599,12 @@ class App extends React.Component<AppProps, AppState> {
                     }}>
                         <div
                             style={{ padding: "5px 12px 5px 12px", width: "100%" }}
-                            onClick={(evt: React.MouseEvent<HTMLDivElement, MouseEvent>) => {
-                                evt.preventDefault(); evt.stopPropagation();
-                                // this.dropdownRef.current.blur();
-
-                                // this.crs_addAllSections(crs);
-                                this.crs_addSearchCrs(crs);
-                            }}
+                            onClick={this.handleSearchResultClicked}
+                            id={crs.unique_id}
                         >
-                            {crsSearchStore.cur_campus_set.size > 1 ? `[${Campus_Formatted[crs.campus]}] ` : null /*  */}
-                            {crs_code}: {crs_title} {/*[{Object.keys(crs.course_sections).join(',')}]*/}</div>
+                            {crsSearchStore.cur_campus_set.size > 1 ? `[${Campus_Formatted[crs.campus]}] ` : null}
+                            {searchResultHighlighted}
+                        </div>
                     </AutoComplete.Option>
 
                 );
@@ -865,8 +895,9 @@ class App extends React.Component<AppProps, AppState> {
                             }}
                                 value={crsSearchStore.search_prefs.dayLengthPreference}>
                                 <Radio.Button value={DayLengthPreference.NoPreference}>Any</Radio.Button>
-                                <Radio.Button value={DayLengthPreference.Long}>Long days</Radio.Button>
+                                <Radio.Button value={DayLengthPreference.Long2}>Long days</Radio.Button>
                                 <Radio.Button value={DayLengthPreference.Short}>Short days</Radio.Button>
+                                {/*<Radio.Button value={DayLengthPreference.Long2}>Long2</Radio.Button>*/}
                             </Radio.Group>
                             <p className="unselectable" style={{ marginTop: "1em", marginBottom: "0em" }}></p>
                             <Checkbox onChange={() => {

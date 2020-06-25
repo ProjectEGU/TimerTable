@@ -7,7 +7,7 @@ from lxml import html
 import json
 from course import *
 from schedule import *
-
+import gzip
 
 def get_url(year_of_study, session):
     """
@@ -122,7 +122,7 @@ def save_term_data(yr_of_study, term_code):
         f.write(jsonpickle.encode(parsed_list, unpicklable=False))
 
 
-def scrape_utm(session, useLocal=False):
+def scrape_utm(session, useLocal=False, compressOutput=False):
     """
 
     :param session: 20199
@@ -148,10 +148,10 @@ def scrape_utm(session, useLocal=False):
         all_list.extend(parse_data(rawdata))
 
     all_list.sort(key=lambda c: c.course_code)
-
-    with open("course_data_utm_{0}".format(session), 'w') as f:
-        f.write(jsonpickle.encode(all_list, unpicklable=False))
-
+    openFunc = gzip.open if compressOutput else open
+    fName = "course_data_utm_{0}".format(session) + ("_production" if compressOutput else "")
+    with openFunc(fName, 'wb') as f:
+        f.write(str.encode(jsonpickle.encode(all_list, unpicklable=False), encoding='utf8'))
 
 # save_term_data('1', '20199')
 """

@@ -8,6 +8,7 @@ import json
 from course import *
 from schedule import *
 import requests
+import gzip
 
 
 def get_url(session, term):
@@ -93,7 +94,7 @@ def load_from_stg_json(filepath):
     return course_list
 
 
-def scrape_stg_artsci(session, useLocal=False):
+def scrape_stg_artsci(session, useLocal=False, compressOutput=False):
     parsed_list = []
 
     for term in ('F', 'S', 'Y'):
@@ -105,8 +106,9 @@ def scrape_stg_artsci(session, useLocal=False):
         parsed_list.extend(load_from_stg_json(filename))
 
     parsed_list.sort(key=lambda c: c.course_code)
-
-    with open("course_data_stg_artsci_{0}".format(session), 'w') as f:
-        f.write(jsonpickle.encode(parsed_list, unpicklable=False))
+    openFunc = gzip.open if compressOutput else open
+    fName = "course_data_stg_artsci_{0}".format(session) + ("_production" if compressOutput else "")
+    with openFunc(fName, 'wb') as f:
+        f.write(str.encode(jsonpickle.encode(parsed_list, unpicklable=False), encoding='utf8'))
 
 # "https://timetable.iit.artsci.utoronto.ca/api/{0}/courses?org=&code=&section={1}&studyyear=&daytime=&weekday=&prof=&breadth=&online=&waitlist=&available=&title=".format(session_id, term)

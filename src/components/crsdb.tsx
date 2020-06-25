@@ -2,7 +2,7 @@ import { Course, CourseSelection, CourseSection, Timeslot } from "./course";
 import { Skeleton } from 'antd';
 import { DLXMatrix } from "./dlxmatrix"
 import { AssertionError } from "assert";
-
+import Fuse from "fuse.js"
 export enum Campus {
     UTM = 'utm',
     STG_ARTSCI = 'stg_artsci',
@@ -13,6 +13,19 @@ export var Campus_Formatted = {
     'utm': "UTM",
     'stg_artsci': "StG"
 }
+// Initialize fuse options
+const fuseOptions = {
+    includeMatches: true,
+    findAllMatches: true,
+    minMatchCharLength: 3,
+    threshold: 0.0,
+    ignoreLocation: true,
+    keys: [
+        "course_code",
+        "course_name"
+    ]
+};
+
 
 export class crsdb {
     constructor(params) {
@@ -20,7 +33,7 @@ export class crsdb {
     }
 
     static crs_store = {}; // crs data store: crs_store[campus][session] : Course[]
-    static crs_store_prefix = {}; // crs data store (uppercase prefix tree): crs_store_prefix[campus][session][letter1][letter2][letter3] : Course[]
+    static crs_store_fuseObj = {}; // crs data store: crs_store_prefix[campus][session]: FuseObj
     static crs_unique_id_map = {}; // crs unique-id map: crs_unique_id_map[unique_id] : Course
 
     public static data_updated_date: Date = null;
@@ -28,9 +41,9 @@ export class crsdb {
         // Check if current campus exist. If not, then add it.
         if (!(campus in crsdb.crs_store)) {
             crsdb.crs_store[campus] = {};
-            crsdb.crs_store_prefix[campus] = {};
+            crsdb.crs_store_fuseObj[campus] = {};
         }
-        // If not forcing reload: Check is session pre-exists in current campus. If so, then return it.
+        // If not forcing reload: Check if session exists in current campus. If so, then return it.
         if (!force_reload && session in crsdb.crs_store[campus]) {
             return crsdb.crs_store[campus][session];
         }
@@ -49,28 +62,16 @@ export class crsdb {
                 return response.json();
             }
         ).then((data: Course[]) => {
+            console.time("parse data for "+ campus + " " + session);
             crsdb.crs_store[campus][session] = data;
-            let crs_map = (crsdb.crs_store_prefix[campus][session] = {});
-            // process each course into first 3 letter ids
-            // add the campus and session info to each course object
-            data.forEach((crs) => {
-                console.assert(crs.course_code.length > 3);
-                crs.campus = campus;
-                crs.session = session;
-                crs.unique_id = `${campus}-${session}-${crs.course_code}`;
-                crsdb.crs_unique_id_map[crs.unique_id] = crs;
-                // map_pos will be of format: {}{}{}[]
-                let map_pos = crs_map;
-                for (let idx = 0; idx < 3; idx++) {
-                    let letter = crs.course_code[idx].toUpperCase();
-                    if (!(letter in map_pos)) {
-                        map_pos[letter] = (idx == 2) ? [] : {};
-                    }
-                    map_pos = map_pos[letter];
-                }
-
-                (map_pos as any as Course[]).push(crs); // typescript type inference bypass required
-            });
+            for (const crsObj of data) {
+                crsObj.campus = campus;
+                crsObj.session = session;
+                crsObj.unique_id = `${campus}-${session}-${crsObj.course_code}`;
+                crsdb.crs_unique_id_map[crsObj.unique_id] = crsObj;
+            }
+            crsdb.crs_store_fuseObj[campus][session] = new Fuse(data, fuseOptions);
+            console.timeEnd("parse data for "+ campus + " " + session);
             return data;
         });
 
@@ -88,20 +89,13 @@ export class crsdb {
     }
 
     /**
-     * Searches for course code using prefix tree lookup. Requires at least 3 letters of course code.
+     * Searches for a course by course code and course title.
+     * Return a list of matching courses, otherwise returns the empty list.
      * 
-     * TODO: consider building prefix tree class which takes in a data store, and several types of keys, and generates up to N characters of prefix arrangement for each key (strings only)
      */
-    static list_crs_by_code(campus, session, crs_code: string): Course[] {
+    static search_crs(campus, session, crs_code: string): Fuse.FuseResult<Course>[] {
         if (crs_code.length < 3) return [];
-        crs_code = crs_code.toUpperCase();
-        let crs_list = crsdb.crs_store_prefix[campus] &&
-            crsdb.crs_store_prefix[campus][session] &&
-            crsdb.crs_store_prefix[campus][session][crs_code[0]] &&
-            crsdb.crs_store_prefix[campus][session][crs_code[0]][crs_code[1]] &&
-            crsdb.crs_store_prefix[campus][session][crs_code[0]][crs_code[1]][crs_code[2]];
-        if (!crs_list) return [];
-        else return crs_list.filter((x: Course) => x.course_code.toUpperCase().startsWith(crs_code));
+        return crsdb.crs_store_fuseObj[campus][session].search(crs_code);
     }
 
     static get_crs_by_uid(unique_id: string): Course {
@@ -161,18 +155,6 @@ export class crsdb {
         return output;
     }
 
-    /**
-     * Get Course by code. If not found or more than one result found, then return null.
-     * @param campus 
-     * @param session 
-     * @param crs_code 
-     */
-    static get_crs_by_code(campus: Campus, session: string, crs_code) {
-        let result = crsdb.list_crs_by_code(campus, session, crs_code);
-        if (result.length != 1) return null;
-        return result[0];
-    }
-
     static list_all_crs_selections(crs: Course): CourseSelection[] {
         let output: CourseSelection[] = [];
         Object.keys(crs.course_sections).forEach(sec_type => {
@@ -182,7 +164,7 @@ export class crsdb {
         return output;
     }
 
-    // TODO: search crs functionality. - possibly for multiple courses
+    // get course by predicate
     static get_crs(campus, session, pred: (arg0: Course) => boolean): Course {
         if (!(campus in crsdb.crs_store)) {
             throw `Campus not loaded in data store: ${campus}`;
@@ -267,13 +249,13 @@ export class crsdb {
 
         if (curMonth >= 9) {
             // if after september of year X, then return the fall-winter semester of year X, and the summer semester of year X+1
-            return [`${curYear}5`, `${curYear + 1}9`]; // return in order: current, next
+            return [`${curYear}5`, `${curYear + 1}9`, `${curYear - 1}5`]; // return in order: current, next
         } else if (curMonth >= 5) {
             // if during summer of year X, then return the summer semester of year X, along with the fall-winter semester of year X
-            return [`${curYear}5`, `${curYear}9`];
+            return [`${curYear}5`, `${curYear}9`, `${curYear - 1}9`];
         } else {
             // if before summer of year X, then return the fall-winter semester of year X-1, alond with the summer semester of year X
-            return [`${curYear - 1}9`, `${curYear}5`];
+            return [`${curYear - 1}9`, `${curYear}5`, `${curYear - 1}5`];
         }
     }
 

@@ -19,6 +19,12 @@ export enum CourseSectionType {
     TUT = "TUT"
 }
 
+export enum DeliveryMode {
+    Online = "Online",
+    InClass = "InClass",
+    Other = "Other"
+}
+
 export interface CourseSelection {
     crs: Course,
     sec: CourseSection
@@ -58,7 +64,14 @@ export interface Course {
     enrl_controls: string;
     term: string;
 
-    session:string;
-    campus:string;
-    unique_id:string; // an identifier for the course object. it will take into account the same course at different campus / session, etc.
+    session: string;
+    campus: string;
+    unique_id: string; // an identifier for the course object. it will take into account the same course at different campus / session, etc.
+
+    delivery_mode: string;
+    prerequisites: string;
+    corequisites: string;
+    exclusions: string;
+
+    
 }

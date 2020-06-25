@@ -240,7 +240,7 @@ export class DLXMatrix<RowType> {
                         let cRow = curHeader.up;
                         while (cRow !== curHeader) {
                             // no assertion that elements are added / removed on 1-to-1 ratio since recover may be called multiple times from solution recording
-                            coveredRows.delete(cRow.rowInfo); 
+                            coveredRows.delete(cRow.rowInfo);
                             cRow = cRow.up;
                         }
                     }
@@ -357,6 +357,8 @@ export class DLXMatrix<RowType> {
             }
             solutionSet.push({ data: newEntry, score: newScore });
         }
+
+
         /** Add to solution set, and trim accordingly.
          */
         let evaluateSolution = (sol: DLXNode[], score: number) => {
@@ -390,7 +392,18 @@ export class DLXMatrix<RowType> {
             }
         };
 
+        let avgDepthNum = 0;
+        let avgDepthDenom = 0;
+        
         let SolveR = (depth: number, curYFS: String): void => {
+            avgDepthNum += depth;
+            avgDepthDenom += 1;
+            if(avgDepthDenom % 5000 === 0) {
+                console.log("Solve_YFS recursions: " + avgDepthDenom + " kthMaxScore: " + kthMaxScore + " sols evaluated: " + solutionCount);
+                if (avgDepthDenom === 5000) {
+                    // this.solutionLimitReached = true; // @@ test debug
+                }
+            }
             if (depth > 100)
                 throw "Recursion limit exceeded";
             // check if the current limit of solutions has been reached
@@ -550,7 +563,8 @@ export class DLXMatrix<RowType> {
         }
 
         SolveR(0, 'Y');
-
+        console.log("Solve_YFS average depth: " + (avgDepthNum / avgDepthDenom));
+        console.log("Solutions evaluated: " + solutionCount);
         // if we never reached the top_n solutions, then sort the solution set
         if (!top_n || solutionSet.length < top_n)
             solutionSet.sort(this.solutionSortFn);

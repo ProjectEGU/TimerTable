@@ -70,6 +70,11 @@ body {
   padding-bottom: 4px !important;
 }
 
+.search-result-highlighted {
+  font-weight: bold;
+  color: #40a9ff;
+}
+
 .ant-tabs {
   overflow: visible; //show the border of rightmost cell
 }
