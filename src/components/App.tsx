@@ -379,8 +379,8 @@ class App extends React.Component<AppProps, AppState> {
         //this.dropdownRef.current.focus();
 
         this.setState({
-            search_result: [],
-            cur_search_status: null,
+            // search_result: [],
+            // cur_search_status: null,
         },
             () => {
                 this.saveData();
@@ -398,8 +398,8 @@ class App extends React.Component<AppProps, AppState> {
         crsSearchStore.removeSearchCrs(crsObj);
 
         this.setState({
-            search_result: [],
-            cur_search_status: null,
+            // search_result: [],
+            // cur_search_status: null,
 
         },
             this.saveData);
@@ -482,8 +482,8 @@ class App extends React.Component<AppProps, AppState> {
         console.time("calculation");
         let search_result: SchedSearchResult = crs_arrange.find_sched(all_sections, crsSearchStore.search_prefs, this.state.search_result_limit, this.state.top_solutions_count, new_method);
         console.timeEnd("calculation");
-        console.log("total solutions: " + search_result.solutionSet.length);//@@@@@
-        // search_result.solutionSet.length = 0;//@@@@@
+        console.log("total solutions: " + search_result.solutionSet.length);
+
         let search_status: string;
         if (search_result.solutionSet.length == 0) {
             search_status = "no feasible schedules found";
@@ -543,12 +543,12 @@ class App extends React.Component<AppProps, AppState> {
         );
     }
 
-    handleSearchResultClicked(evt: React.MouseEvent<HTMLDivElement, MouseEvent>) {
+    handleSearchResultClicked(crs_uid: string, evt: React.MouseEvent<HTMLDivElement, MouseEvent>) {
         evt.preventDefault(); evt.stopPropagation();
         // this.dropdownRef.current.blur();
 
         // this.crs_addAllSections(crs);
-        this.crs_addSearchCrs(crsdb.get_crs_by_uid((evt.target as HTMLDivElement).id));
+        this.crs_addSearchCrs(crsdb.get_crs_by_uid(crs_uid));
     };
 
     public render() {
@@ -599,8 +599,7 @@ class App extends React.Component<AppProps, AppState> {
                     }}>
                         <div
                             style={{ padding: "5px 12px 5px 12px", width: "100%" }}
-                            onClick={this.handleSearchResultClicked}
-                            id={crs.unique_id}
+                            onClick={this.handleSearchResultClicked.bind(this, crs.unique_id)}
                         >
                             {crsSearchStore.cur_campus_set.size > 1 ? `[${Campus_Formatted[crs.campus]}] ` : null}
                             {searchResultHighlighted}
@@ -817,7 +816,7 @@ class App extends React.Component<AppProps, AppState> {
                                     dropdownMatchSelectWidth={400}
                                     disabled={this.state.data_load_error}
                                     dataSource={dataSource}
-                                    placeholder="Enter first 3 letters of course code"
+                                    placeholder="Enter course code or keywords"
                                     className="crs-sel-dropdown"
                                     onChange={(v) => {
                                         this.setState({

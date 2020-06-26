@@ -4,12 +4,14 @@
 [Click here to use the tool](https://projectegu.github.io/TimerTable/)
 
 ## Current Todos
-- [ ] Serve course data as a gzipped file with appropriate headers
+- [x] Serve course data as a gzipped file with appropriate headers
 - [ ] Serve course data with proper caching headers
 - [ ] Scrape additional information: prerequisites, corequisites, exclusions, and delivery mode
-- [ ] Implement fuzzy searching by course code and course name
+- [ ] Display delivery mode and show if courses are online
+- [x] Implement fuzzy searching by course code and course name
 - [ ] Rework timetable display to use flex layout for better performance
 - [ ] Polish gaps and spacing in the current GUI
+
 
 ## Lower Priority Goals
 - [ ] Choose which sections to include in search
