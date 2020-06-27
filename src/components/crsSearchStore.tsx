@@ -89,8 +89,8 @@ const crsSearchStore = store<crsSearchStoreFormat>({
         batch(() => {
             stbl.search_crs_list.splice(removeIdx, 1);
 
-            stbl.search_crs_solo_sections_map.delete(crsObj.unique_id);
-            stbl.search_crs_exclude_sections_map.delete(crsObj.unique_id);
+            // stbl.search_crs_solo_sections_map.delete(crsObj.unique_id);
+            // stbl.search_crs_exclude_sections_map.delete(crsObj.unique_id);
 
             crs_arrange.get_conflict_map(stbl.search_crs_list, stbl.search_crs_solo_sections_map, stbl.search_crs_exclude_sections_map).forEach((val, key) => {
                 stbl.search_crs_conflict_group_map.set(key, this.conflict_color_list[val % this.conflict_color_list.length]);
@@ -98,6 +98,7 @@ const crsSearchStore = store<crsSearchStoreFormat>({
             stbl.search_crs_enabled.splice(removeIdx, 1);
             stbl.search_crs_sections_filtermode.splice(removeIdx, 1);
         });
+
     },
     updateSearchCrsFilterSections: (targetCrsObj: Course, new_solo_sections: Map<string, Set<string>>, new_exclude_sections: Map<string, Set<string>>) => {
         const stbl: SearchInput = crsSearchStore.search_inputs_tbl.get(crsSearchStore.cur_session);

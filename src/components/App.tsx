@@ -396,7 +396,7 @@ class App extends React.Component<AppProps, AppState> {
 
     crs_removeSearchCrs(crsObj: Course) {
         crsSearchStore.removeSearchCrs(crsObj);
-
+        
         this.setState({
             // search_result: [],
             // cur_search_status: null,
