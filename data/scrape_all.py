@@ -22,9 +22,8 @@ session = sys.argv[1]
 
 # convert each input argument into lower case
 rest_args = set(x.lower() for x in sys.argv[2:])
-
 # if none of the campuses were specified, then scrape all campuses
-ALL = len(rest_args.intersection(*('utm', 'stg_artsci', 'utsc'))) == 0
+ALL = len(rest_args.intersection(set(('utm', 'stg_artsci', 'utsc')))) == 0
 
 UTM = 'utm' in rest_args
 STG_ARTSCI = 'stg_artsci' in rest_args
